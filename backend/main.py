@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+from app.routes.invitations import router as invitations_router
+from app.routes.admin import router as admin_router
+from typing import Dict, List
 from app.routes import (
     auth_router, 
     vehicles_router, 
@@ -10,7 +13,7 @@ from app.routes import (
     metrics_router
 )
 import json
-from typing import Dict, List
+
 import asyncio
 
 app = FastAPI(
@@ -93,6 +96,7 @@ app.include_router(fuel_router)
 app.include_router(maintenance_router)
 app.include_router(inventory_router)
 app.include_router(metrics_router)
+app.include_router(invitations_router)
 
 @app.get("/")
 async def root():

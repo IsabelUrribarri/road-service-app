@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from ..models.inventory import Inventory, InventoryCreate, InventoryUpdate
 from ..models.database import get_db
-from ..auth.jwt_handler import get_current_active_user, require_role
+from ..auth.jwt_handler import get_current_active_user, require_company_admin
 from ..manager import manager
 import uuid
 from datetime import datetime
@@ -14,7 +14,7 @@ async def get_inventory(
     vehicle_id: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -31,7 +31,7 @@ async def get_inventory(
 @router.post("/", response_model=Inventory)
 async def create_inventory_item(
     inventory_data: InventoryCreate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden crear
 ):
     try:
         db = get_db()
@@ -77,7 +77,7 @@ async def create_inventory_item(
 @router.get("/{item_id}", response_model=Inventory)
 async def get_inventory_item(
     item_id: str,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -92,7 +92,7 @@ async def get_inventory_item(
 async def update_inventory_item(
     item_id: str,
     inventory_data: InventoryUpdate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden actualizar
 ):
     try:
         db = get_db()
@@ -134,7 +134,7 @@ async def update_inventory_item(
 @router.delete("/{item_id}")
 async def delete_inventory_item(
     item_id: str,
-    user: dict = Depends(lambda: require_role("manager"))  # CORREGIDO: agregar lambda
+    user: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin pueden eliminar
 ):
     try:
         db = get_db()
@@ -163,7 +163,9 @@ async def delete_inventory_item(
 
 # Ruta para alertas de inventario bajo
 @router.get("/alerts/low-stock")
-async def get_low_stock_alerts(user: dict = Depends(get_current_active_user)):
+async def get_low_stock_alerts(
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver alertas
+):
     """
     Obtener items con stock bajo
     """
@@ -176,9 +178,11 @@ async def get_low_stock_alerts(user: dict = Depends(get_current_active_user)):
 
 # Ruta administrativa para reporte de inventario
 @router.get("/admin/report")
-async def get_inventory_report(admin: dict = Depends(lambda: require_role("admin"))):  # CORREGIDO: agregar lambda
+async def get_inventory_report(
+    admin: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin
+):
     """
-    Reporte completo de inventario - solo para administradores
+    Reporte completo de inventario - solo para company_admin y super_admin
     """
     try:
         db = get_db()
@@ -193,7 +197,7 @@ async def get_inventory_report(admin: dict = Depends(lambda: require_role("admin
             "total_items": total_items,
             "low_stock_items": low_stock,
             "out_of_stock_items": out_of_stock,
-            "inventory_value": sum(item.get('quantity', 0) for item in inventory),  # Podrías agregar precio
+            "inventory_value": sum(item.get('quantity', 0) for item in inventory),
             "alerts": low_stock + out_of_stock
         }
     except Exception as e:

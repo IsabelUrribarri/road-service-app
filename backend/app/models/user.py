@@ -3,9 +3,9 @@ from typing import Optional
 from enum import Enum
 
 class UserRole(str, Enum):
-    USER = "user"
-    ADMIN = "admin"
-    MANAGER = "manager"
+    SUPER_ADMIN = "super_admin"
+    COMPANY_ADMIN = "company_admin"
+    WORKER = "worker"
 
 class UserStatus(str, Enum):
     ACTIVE = "active"
@@ -16,11 +16,11 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str
     company_id: str
-    role: UserRole = UserRole.USER
+    role: UserRole = UserRole.WORKER
     status: UserStatus = UserStatus.ACTIVE
 
 class UserCreate(UserBase):
-    password: str  # Para futura implementación de auth con password
+    password: str
     
     @validator('password')
     def password_strength(cls, v):
@@ -28,10 +28,16 @@ class UserCreate(UserBase):
             raise ValueError('Password must be at least 8 characters long')
         return v
 
+    @validator('role')
+    def validate_role_assignment(cls, v, values):
+        # Solo super_admin puede crear otros super_admins
+        # En la práctica, esto se controlará en las rutas
+        return v
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
-    company_id: Optional[str] = "default"
+    company_id: Optional[str] = None
 
 class UserUpdate(BaseModel):
     name: Optional[str]
@@ -48,5 +54,11 @@ class UserResponse(UserBase):
         from_attributes = True
 
 class UserInDB(UserResponse):
-    # Campos internos que no se exponen en las respuestas
     hashed_password: Optional[str] = None
+
+# Modelo para invitar usuarios
+class UserInvite(BaseModel):
+    email: EmailStr
+    name: str
+    role: UserRole = UserRole.WORKER
+    company_id: str

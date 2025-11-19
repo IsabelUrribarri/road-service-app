@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from ..models.vehicle import Vehicle, VehicleCreate, VehicleUpdate
 from ..models.database import get_db
-from ..auth.jwt_handler import get_current_active_user, require_role
+from ..auth.jwt_handler import get_current_active_user, require_company_admin
 from ..manager import manager
 import uuid
 from datetime import datetime, date
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 async def get_vehicles(
     skip: int = 0, 
     limit: int = 100,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -26,7 +26,7 @@ async def get_vehicles(
 @router.post("/", response_model=Vehicle)
 async def create_vehicle(
     vehicle_data: VehicleCreate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden crear
 ):
     try:
         db = get_db()
@@ -59,7 +59,7 @@ async def create_vehicle(
 @router.get("/{vehicle_id}", response_model=Vehicle)
 async def get_vehicle(
     vehicle_id: str,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -75,7 +75,7 @@ async def get_vehicle(
 async def update_vehicle(
     vehicle_id: str,
     vehicle_data: VehicleUpdate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden actualizar
 ):
     try:
         db = get_db()
@@ -106,7 +106,7 @@ async def update_vehicle(
 @router.delete("/{vehicle_id}")
 async def delete_vehicle(
     vehicle_id: str,
-    user: dict = Depends(lambda: require_role("manager"))  # CORREGIDO: agregar lambda
+    user: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin pueden eliminar
 ):
     try:
         db = get_db()
@@ -132,11 +132,13 @@ async def delete_vehicle(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Ruta solo para administradores
+# Ruta para obtener todos los vehículos de la compañía (solo company_admin y super_admin)
 @router.get("/company/all")
-async def get_all_company_vehicles(admin: dict = Depends(lambda: require_role("admin"))):  # CORREGIDO: agregar lambda
+async def get_all_company_vehicles(
+    admin: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin
+):
     """
-    Obtener todos los vehículos de la compañía - solo para administradores
+    Obtener todos los vehículos de la compañía - solo para company_admin y super_admin
     """
     try:
         db = get_db()

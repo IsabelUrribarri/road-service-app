@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from ..models.fuel import FuelRecord, FuelRecordCreate, FuelRecordUpdate
 from ..models.database import get_db
-from ..auth.jwt_handler import get_current_active_user, require_role
+from ..auth.jwt_handler import get_current_active_user, require_company_admin
 from ..manager import manager
 import uuid
 from datetime import datetime
@@ -14,7 +14,7 @@ async def get_fuel_records(
     vehicle_id: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -35,7 +35,7 @@ async def get_fuel_records(
 @router.post("/", response_model=FuelRecord)
 async def create_fuel_record(
     fuel_data: FuelRecordCreate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden crear
 ):
     try:
         db = get_db()
@@ -81,7 +81,7 @@ async def create_fuel_record(
 @router.get("/{record_id}", response_model=FuelRecord)
 async def get_fuel_record(
     record_id: str,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -96,7 +96,7 @@ async def get_fuel_record(
 async def update_fuel_record(
     record_id: str,
     fuel_data: FuelRecordUpdate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden actualizar
 ):
     try:
         db = get_db()
@@ -141,7 +141,7 @@ async def update_fuel_record(
 @router.delete("/{record_id}")
 async def delete_fuel_record(
     record_id: str,
-    user: dict = Depends(lambda: require_role("manager"))  # CORREGIDO: agregar lambda
+    user: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin pueden eliminar
 ):
     try:
         db = get_db()
@@ -170,7 +170,9 @@ async def delete_fuel_record(
 
 # Ruta para análisis de combustible
 @router.get("/analysis/consumption")
-async def get_consumption_analysis(user: dict = Depends(get_current_active_user)):
+async def get_consumption_analysis(
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver análisis
+):
     """
     Análisis de consumo de combustible
     """
@@ -215,9 +217,11 @@ async def get_consumption_analysis(user: dict = Depends(get_current_active_user)
 
 # Ruta administrativa para reportes
 @router.get("/admin/monthly-report")
-async def get_monthly_fuel_report(admin: dict = Depends(lambda: require_role("admin"))):  # CORREGIDO: agregar lambda
+async def get_monthly_fuel_report(
+    admin: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin
+):
     """
-    Reporte mensual de combustible - solo para administradores
+    Reporte mensual de combustible - solo para company_admin y super_admin
     """
     try:
         db = get_db()

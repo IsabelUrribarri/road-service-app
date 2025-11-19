@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from ..models.maintenance import Maintenance, MaintenanceCreate, MaintenanceUpdate
 from ..models.database import get_db
-from ..auth.jwt_handler import get_current_active_user, require_role
+from ..auth.jwt_handler import get_current_active_user, require_company_admin
 from ..manager import manager
 import uuid
 from datetime import datetime
@@ -14,7 +14,7 @@ async def get_maintenance(
     vehicle_id: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -31,7 +31,7 @@ async def get_maintenance(
 @router.post("/", response_model=Maintenance)
 async def create_maintenance(
     maintenance_data: MaintenanceCreate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden crear
 ):
     try:
         db = get_db()
@@ -70,7 +70,7 @@ async def create_maintenance(
 @router.get("/{maintenance_id}", response_model=Maintenance)
 async def get_maintenance_record(
     maintenance_id: str,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
 ):
     try:
         db = get_db()
@@ -85,7 +85,7 @@ async def get_maintenance_record(
 async def update_maintenance(
     maintenance_id: str,
     maintenance_data: MaintenanceUpdate,
-    user: dict = Depends(get_current_active_user)
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden actualizar
 ):
     try:
         db = get_db()
@@ -117,7 +117,7 @@ async def update_maintenance(
 @router.delete("/{maintenance_id}")
 async def delete_maintenance(
     maintenance_id: str,
-    user: dict = Depends(lambda: require_role("manager"))  # CORREGIDO: agregar lambda
+    user: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin pueden eliminar
 ):
     try:
         db = get_db()
@@ -144,14 +144,14 @@ async def delete_maintenance(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Ruta para aprobación de mantenimientos (solo managers/admins)
+# Ruta para aprobación de mantenimientos (solo company_admin y super_admin)
 @router.post("/{maintenance_id}/approve")
 async def approve_maintenance(
     maintenance_id: str,
-    user: dict = Depends(lambda: require_role("manager"))  # CORREGIDO: agregar lambda
+    user: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin pueden aprobar
 ):
     """
-    Aprobar mantenimiento - solo managers y admins
+    Aprobar mantenimiento - solo company_admin y super_admin
     """
     try:
         db = get_db()

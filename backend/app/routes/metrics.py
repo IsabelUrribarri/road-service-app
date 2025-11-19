@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends
 from ..models.metrics import Metrics
 from ..models.database import get_db
-from ..auth.jwt_handler import get_current_active_user, require_role
+from ..auth.jwt_handler import get_current_active_user, require_company_admin, require_super_admin
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 @router.get("/", response_model=Metrics)
-async def get_metrics(user: dict = Depends(get_current_active_user)):
+async def get_metrics(user: dict = Depends(get_current_active_user)):  # ✅ Todos los roles pueden ver
     try:
         db = get_db()
         company_id = user["company_id"]
@@ -66,7 +66,10 @@ async def get_metrics(user: dict = Depends(get_current_active_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/vehicle/{vehicle_id}")
-async def get_vehicle_metrics(vehicle_id: str, user: dict = Depends(get_current_active_user)):
+async def get_vehicle_metrics(
+    vehicle_id: str, 
+    user: dict = Depends(get_current_active_user)  # ✅ Todos los roles pueden ver
+):
     try:
         db = get_db()
         company_id = user["company_id"]
@@ -110,11 +113,13 @@ async def get_vehicle_metrics(vehicle_id: str, user: dict = Depends(get_current_
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Métricas administrativas
-@router.get("/admin/company-overview")
-async def get_company_overview(admin: dict = Depends(lambda: require_role("admin"))):  # CORREGIDO: agregar lambda
+# Métricas administrativas de la empresa
+@router.get("/company/overview")
+async def get_company_overview(
+    admin: dict = Depends(require_company_admin)  # ✅ SOLO Company Admin y Super Admin
+):
     """
-    Métricas completas de la compañía - solo para administradores
+    Métricas completas de la compañía - solo para company_admin y super_admin
     """
     try:
         db = get_db()
@@ -133,7 +138,39 @@ async def get_company_overview(admin: dict = Depends(lambda: require_role("admin
             "total_fuel_records": len(fuel_records),
             "total_maintenance": len(maintenance),
             "active_vehicles": len([v for v in vehicles if v.get('status') == 'active']),
-            "in_maintenance": len([v for v in vehicles if v.get('status') == 'maintenance'])
+            "in_maintenance": len([v for v in vehicles if v.get('status') == 'maintenance']),
+            "users_by_role": {
+                "super_admin": len([u for u in users if u.get('role') == 'super_admin']),
+                "company_admin": len([u for u in users if u.get('role') == 'company_admin']),
+                "worker": len([u for u in users if u.get('role') == 'worker'])
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Métricas globales del sistema (solo super_admin)
+@router.get("/admin/global-overview")
+async def get_global_overview(
+    admin: dict = Depends(require_super_admin)  # ✅ SOLO Super Admin
+):
+    """
+    Métricas globales del sistema - solo para super_admin
+    """
+    try:
+        db = get_db()
+        
+        # Obtener estadísticas globales
+        companies = db.table("companies").select("id", count="exact").execute()
+        total_users = db.table("users").select("id", count="exact").execute()
+        total_vehicles = db.table("vehicles").select("id", count="exact").execute()
+        total_fuel_records = db.table("fuel_records").select("id", count="exact").execute()
+        
+        return {
+            "total_companies": companies.count or 0,
+            "total_users": total_users.count or 0,
+            "total_vehicles": total_vehicles.count or 0,
+            "total_fuel_records": total_fuel_records.count or 0,
+            "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

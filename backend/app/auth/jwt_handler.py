@@ -18,6 +18,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
 
 security = HTTPBearer()
 
+# Definir roles del sistema
+ROLES = ["super_admin", "company_admin", "worker"]
+ROLE_HIERARCHY = {
+    "super_admin": 3,
+    "company_admin": 2, 
+    "worker": 1
+}
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """
     Crea un JWT token con los datos del usuario
@@ -73,7 +81,7 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
         
         user = user_result.data[0]
         
-        # Validar que el usuario esté activo (si tienes campo de estado)
+        # Validar que el usuario esté activo
         if user.get("status") == "inactive":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -95,9 +103,9 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
         return {
             "email": user["email"],
             "user_id": user["id"],
-            "company_id": user.get("company_id", "default"),
+            "company_id": user.get("company_id"),
             "name": user.get("name", ""),
-            "role": user.get("role", "user")  # Para autorización futura
+            "role": user.get("role", "worker")  # Default a worker si no existe
         }
         
     except jwt.ExpiredSignatureError:
@@ -126,24 +134,68 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
     """
     Dependency para validar que el usuario esté activo
     """
-    # Aquí puedes agregar más validaciones de estado del usuario
     return current_user
 
-# Funciones de autorización (para futuras características)
-async def require_role(required_role: str, user: dict = Depends(get_current_user)):
-    """
-    Dependency para requerir un rol específico
-    """
-    user_role = user.get("role", "user")
-    if user_role != required_role and user_role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions"
-        )
-    return user
+# =============================================================================
+# FUNCIONES DE AUTORIZACIÓN POR ROLES
+# =============================================================================
 
-async def require_admin(user: dict = Depends(get_current_user)):
+def has_role(user: dict, required_role: str) -> bool:
     """
-    Dependency para requerir rol de administrador
+    Verifica si el usuario tiene al menos el rol requerido
+    Basado en la jerarquía: super_admin > company_admin > worker
     """
-    return await require_role("admin", user)
+    user_role = user.get("role", "worker")
+    user_level = ROLE_HIERARCHY.get(user_role, 1)
+    required_level = ROLE_HIERARCHY.get(required_role, 1)
+    
+    return user_level >= required_level
+
+async def require_role(required_role: str):
+    """
+    Dependency factory para requerir un rol específico
+    """
+    async def role_dependency(user: dict = Depends(get_current_user)):
+        if not has_role(user, required_role):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions. Required role: {required_role}"
+            )
+        return user
+    return role_dependency
+
+# Dependencies específicos para cada rol
+async def require_super_admin(user: dict = Depends(get_current_user)):
+    """Solo para Super Admin (tú)"""
+    return await require_role("super_admin")(user)
+
+async def require_company_admin(user: dict = Depends(get_current_user)):
+    """Para Company Admin y Super Admin"""
+    if has_role(user, "company_admin"):
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Company admin or higher role required"
+    )
+
+async def require_worker(user: dict = Depends(get_current_user)):
+    """Para cualquier usuario autenticado (todos los roles)"""
+    return user  # Todos los roles tienen al menos permisos de worker
+
+# Dependencies para acciones específicas
+async def can_manage_users(user: dict = Depends(get_current_user)):
+    """
+    Dependency para gestionar usuarios (solo company_admin y super_admin)
+    """
+    if has_role(user, "company_admin"):
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Insufficient permissions to manage users"
+    )
+
+async def can_manage_companies(user: dict = Depends(get_current_user)):
+    """
+    Dependency para gestionar empresas (solo super_admin)
+    """
+    return await require_role("super_admin")(user)
