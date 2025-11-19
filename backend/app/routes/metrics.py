@@ -1,25 +1,26 @@
 from fastapi import APIRouter, HTTPException, Depends
 from ..models.metrics import Metrics
 from ..models.database import get_db
-from ..auth.jwt_handler import verify_token
+from ..auth.jwt_handler import get_current_active_user, require_role
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 @router.get("/", response_model=Metrics)
-async def get_metrics(user: dict = Depends(verify_token)):
+async def get_metrics(user: dict = Depends(get_current_active_user)):
     try:
         db = get_db()
+        company_id = user["company_id"]
         
-        # Get all fuel records for the current month
+        # Get all fuel records for the current month con filtro de compañía
         current_month = datetime.now().strftime("%Y-%m")
-        fuel_records = db.table("fuel_records").select("*").execute().data
+        fuel_records = db.table("fuel_records").select("*").eq("company_id", company_id).execute().data
         
-        # Get all vehicles
-        vehicles = db.table("vehicles").select("*").execute().data
+        # Get all vehicles con filtro de compañía
+        vehicles = db.table("vehicles").select("*").eq("company_id", company_id).execute().data
         
-        # Get all maintenance records
-        maintenance = db.table("maintenance").select("*").execute().data
+        # Get all maintenance records con filtro de compañía
+        maintenance = db.table("maintenance").select("*").eq("company_id", company_id).execute().data
         
         # Calculate metrics
         if fuel_records:
@@ -51,7 +52,7 @@ async def get_metrics(user: dict = Depends(verify_token)):
         
         # Get upcoming maintenance (next 30 days)
         next_month = (datetime.now() + timedelta(days=30)).isoformat()
-        upcoming = [m for m in maintenance if m['next_service_date'] <= next_month]
+        upcoming = [m for m in maintenance if m.get('next_service_date') and m['next_service_date'] <= next_month]
         
         return Metrics(
             average_consumption=round(average_consumption, 1),
@@ -65,17 +66,21 @@ async def get_metrics(user: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/vehicle/{vehicle_id}")
-async def get_vehicle_metrics(vehicle_id: str, user: dict = Depends(verify_token)):
+async def get_vehicle_metrics(vehicle_id: str, user: dict = Depends(get_current_active_user)):
     try:
         db = get_db()
+        company_id = user["company_id"]
         
-        # Get fuel records for specific vehicle
-        fuel_records = db.table("fuel_records").select("*").eq("vehicle_id", vehicle_id).execute().data
+        # Verificar que el vehículo pertenezca a la compañía del usuario
+        vehicle_check = db.table("vehicles").select("id").eq("id", vehicle_id).eq("company_id", company_id).execute()
+        if not vehicle_check.data:
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+        
+        # Get fuel records for specific vehicle con filtro de compañía
+        fuel_records = db.table("fuel_records").select("*").eq("vehicle_id", vehicle_id).eq("company_id", company_id).execute().data
         
         # Get vehicle info
         vehicle = db.table("vehicles").select("*").eq("id", vehicle_id).execute().data
-        if not vehicle:
-            raise HTTPException(status_code=404, detail="Vehicle not found")
         
         # Calculate vehicle-specific metrics
         if fuel_records:
@@ -101,6 +106,34 @@ async def get_vehicle_metrics(vehicle_id: str, user: dict = Depends(verify_token
             "cost_per_mile": round(cost_per_mile, 2),
             "total_miles": round(total_miles, 0),
             "recent_records": recent_records
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Métricas administrativas
+@router.get("/admin/company-overview")
+async def get_company_overview(admin: dict = Depends(lambda: require_role("admin"))):  # CORREGIDO: agregar lambda
+    """
+    Métricas completas de la compañía - solo para administradores
+    """
+    try:
+        db = get_db()
+        company_id = admin["company_id"]
+        
+        # Obtener todos los datos de la compañía
+        vehicles = db.table("vehicles").select("*").eq("company_id", company_id).execute().data
+        fuel_records = db.table("fuel_records").select("*").eq("company_id", company_id).execute().data
+        maintenance = db.table("maintenance").select("*").eq("company_id", company_id).execute().data
+        users = db.table("users").select("*").eq("company_id", company_id).execute().data
+        
+        return {
+            "company_id": company_id,
+            "total_vehicles": len(vehicles),
+            "total_users": len(users),
+            "total_fuel_records": len(fuel_records),
+            "total_maintenance": len(maintenance),
+            "active_vehicles": len([v for v in vehicles if v.get('status') == 'active']),
+            "in_maintenance": len([v for v in vehicles if v.get('status') == 'maintenance'])
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

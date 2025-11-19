@@ -1,17 +1,10 @@
-from .database import Base, engine, get_db
-from .user import User, UserCreate, UserLogin
-from .vehicle import Vehicle, VehicleCreate
-from .fuel import FuelRecord, FuelRecordCreate
-from .maintenance import Maintenance, MaintenanceCreate
-from .inventory import Inventory, InventoryCreate
-from .metrics import Metrics
+# app/models/__init__.py
+from .user import UserCreate, UserLogin, UserResponse, UserRole, UserStatus
 
 __all__ = [
-    'Base', 'engine', 'get_db',
-    'User', 'UserCreate', 'UserLogin',
-    'Vehicle', 'VehicleCreate', 
-    'FuelRecord', 'FuelRecordCreate',
-    'Maintenance', 'MaintenanceCreate',
-    'Inventory', 'InventoryCreate',
-    'Metrics'
+    'UserCreate', 
+    'UserLogin', 
+    'UserResponse',
+    'UserRole',
+    'UserStatus'
 ]

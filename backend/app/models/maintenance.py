@@ -2,27 +2,30 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date
 
-class Maintenance(BaseModel):
-    id: str
+class MaintenanceBase(BaseModel):
     vehicle_id: str
     date: str
-    service_type: str
+    maintenance_type: str  # ← CAMBIADO: De service_type a maintenance_type
     description: str
     cost: float
-    next_service_date: str
-    created_at: Optional[str] = None
+    next_maintenance_date: str  # ← CAMBIADO: De next_service_date
+    company_id: str  # ← NUEVO: Para filtrado por compañía
 
-class MaintenanceCreate(BaseModel):
-    vehicle_id: str
-    date: str
-    service_type: str
-    description: str
-    cost: float
-    next_service_date: str
+class MaintenanceCreate(MaintenanceBase):
+    pass
 
 class MaintenanceUpdate(BaseModel):
     date: Optional[str] = None
-    service_type: Optional[str] = None
+    maintenance_type: Optional[str] = None  # ← CAMBIADO
     description: Optional[str] = None
     cost: Optional[float] = None
-    next_service_date: Optional[str] = None
+    next_maintenance_date: Optional[str] = None  # ← CAMBIADO
+    # company_id no se puede actualizar
+
+class Maintenance(MaintenanceBase):
+    id: str
+    status: str = "pending"  # ← NUEVO: pending, completed, cancelled
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True

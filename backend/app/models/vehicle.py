@@ -1,19 +1,15 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class Vehicle(BaseModel):
-    id: str
+class VehicleBase(BaseModel):
     unit_id: str
     mechanic_name: str
     model: str
     total_miles: float
     status: str
-    created_at: Optional[str] = None
+    company_id: str  # ← NUEVO: Para filtrado por compañía
 
-class VehicleCreate(BaseModel):
-    unit_id: str
-    mechanic_name: str
-    model: str
+class VehicleCreate(VehicleBase):
     total_miles: float = 0
     status: str = "active"
 
@@ -23,3 +19,11 @@ class VehicleUpdate(BaseModel):
     model: Optional[str] = None
     total_miles: Optional[float] = None
     status: Optional[str] = None
+    # company_id no se puede actualizar
+
+class Vehicle(VehicleBase):
+    id: str
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
