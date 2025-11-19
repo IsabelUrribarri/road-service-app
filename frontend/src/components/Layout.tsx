@@ -38,11 +38,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <Link
                     key={item.name}
                     to={item.href}
-                    className={`inline-flex items-center px-4 py-2 text-sm font-medium transition-all duration-200 rounded-lg mx-1 ${
-                      item.current
+                    className={`inline-flex items-center px-4 py-2 text-sm font-medium transition-all duration-200 rounded-lg mx-1 ${item.current
                         ? 'bg-primary/10 text-primary shadow-sm border border-primary/20'
                         : 'text-muted-foreground hover:text-foreground hover:bg-accent/50 border border-transparent'
-                    }`}
+                      }`}
                   >
                     {item.name}
                   </Link>
@@ -50,7 +49,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             </div>
 
-            <div className="hidden sm:flex sm:items-center space-x-3">
+            <div className="hidden sm:flex sm:items-center space-x-4 ml-12">
               <ThemeToggle />
               <div className="flex items-center space-x-3 bg-accent/50 rounded-lg px-3 py-1">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -95,16 +94,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   key={item.name}
                   to={item.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`block pl-4 pr-4 py-3 text-base font-medium transition-colors border-l-4 mx-2 rounded-r-lg ${
-                    item.current
+                  className={`block pl-4 pr-4 py-3 text-base font-medium transition-colors border-l-4 mx-2 rounded-r-lg ${item.current
                       ? 'bg-primary/10 text-primary border-primary shadow-sm'
                       : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                  }`}
+                    }`}
                 >
                   {item.name}
                 </Link>
               ))}
-              
+
               <div className="pt-4 pb-3 border-t border-border/60 mx-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-2 bg-accent/50 rounded-lg px-3 py-2">
