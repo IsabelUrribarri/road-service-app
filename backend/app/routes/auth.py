@@ -149,114 +149,131 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
-    """
-    Registro de usuario con validaciones de producción
-    """
-    try:
-        db = get_db()
-        
-        # Rate limiting básico por IP (en producción usa Redis)
-        client_ip = request.client.host
-        
-        # Verificar si el usuario ya existe
-        existing_user = db.table("users").select("*").eq("email", user_data.email).execute()
-        if existing_user.data:
-            raise HTTPException(status_code=400, detail="User already exists")
-        
-        # Validar fortaleza de password
-        if len(user_data.password) < 8:
-            raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
-        
-        # Crear usuario con password hasheado
-        user_id = str(uuid.uuid4())
-        user = {
-            "id": user_id,
-            "email": user_data.email,
-            "name": user_data.name,
-            "company_id": user_data.company_id,
-            "role": user_data.role.value,
-            "status": user_data.status.value,
-            "hashed_password": hash_password(user_data.password),
-            "created_at": datetime.now().isoformat(),
-            "last_login": None,
-            "registration_ip": client_ip
-        }
-        
-        result = db.table("users").insert(user)
-        
-        if result.error:
-            raise HTTPException(status_code=500, detail=f"Failed to create user: {result.error}")
-        
-        new_user = result.data[0] if result.data else None
-        
-        if not new_user:
-            raise HTTPException(status_code=500, detail="Failed to create user")
-        
-        # Crear token de acceso
-        token_data = {
-            "sub": user_data.email,
-            "user_id": user_id,
-            "name": user_data.name,
-            "company_id": user_data.company_id,
-            "role": user_data.role.value
-        }
-        
-        access_token = create_access_token(token_data)
-        
-        # Tarea en background para enviar email de bienvenida
-        # background_tasks.add_task(send_welcome_email, new_user["email"])
-        
-        return {
-            "message": "User created successfully", 
-            "user": UserResponse(**new_user),
-            "access_token": access_token,
-            "token_type": "bearer",
-            "expires_in": 24 * 60 * 60  # 1 día en segundos (como está configurado)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
 
+    # ⚠️ ELIMINA TODO ESTE CÓDIGO QUE ESTÁ DESPUÉS - ESTÁ INALCANZABLE ⚠️
+# En auth.py - mantener solo lo esencial
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
-    """
-    Login de usuario con validaciones de seguridad
-    """
     try:
         db = get_db()
-        
-        # Rate limiting básico
-        client_ip = request.client.host
-        
-        # Buscar usuario
         user_result = db.table("users").select("*").eq("email", login_data.email).execute()
         
         if not user_result.data:
-            # Mismo mensaje de error para no revelar información
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user = user_result.data[0]
         
-        # Validar estado del usuario
-        if user.get("status") != "active":
-            raise HTTPException(status_code=401, detail="Account is not active")
-        
-        # Validar password
         if not verify_password(login_data.password, user.get("hashed_password", "")):
-            # Registrar intento fallido (en producción)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # Validar company_id
-        if user.get("company_id") != login_data.company_id:
-            raise HTTPException(status_code=401, detail="Invalid company")
+        # Crear token y retornar respuesta...
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+    
+    """
+    Login de usuario con validaciones de seguridad
+    """
+    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT ===")
+    print(f"🎯 [DEBUG] login_data type: {type(login_data)}")
+    print(f"🎯 [DEBUG] login_data: {login_data}")
+    print(f"🎯 [DEBUG] login_data.dict(): {login_data.dict()}")
+    
+    try:
+        db = get_db()  # ← ESTA LÍNEA DEBE IR PRIMERO
+        
+        print(f"🔐 [DEBUG] Email: {login_data.email}")
+        print(f"🔐 [DEBUG] Password: {login_data.password}")
+        print(f"🔐 [DEBUG] Company ID: {login_data.company_id}")
+        
+        # 🔍 DEBUG DE CONEXIÓN - TODAS LAS CONSULTAS AQUÍ
+        print("🔍 [DEBUG] Probando diferentes consultas...")
+
+        # Consulta 1 - La actual
+        result1 = db.table("users").select("*").eq("email", login_data.email).execute()
+        print(f"🔍 [DEBUG] Consulta 1 - users: {result1.data}")
+
+        # Consulta 2 - Con ilike (case insensitive)  
+        # result2 = db.table("users").select("*").ilike("email", login_data.email).execute()
+        # print(f"🔍 [DEBUG] Consulta 2 - ilike: {result2.data}")
+
+        # Consulta 3 - Buscar todos los usuarios para debug
+        result3 = db.table("users").select("email, id").limit(5).execute()
+        print(f"🔍 [DEBUG] Consulta 3 - todos: {result3.data}")
+
+        # Consulta 4 - Buscar por ID en lugar de email
+        result4 = db.table("users").select("*").eq("id", "95dba2b9-4183-46d4-94dc-fa7094697156").execute()
+        print(f"🔍 [DEBUG] Consulta 4 - por ID: {result4.data}")
+        
+        # Consulta 5 - En public.users
+        result5 = db.table("public.users").select("*").eq("email", login_data.email).execute()
+        print(f"🔍 [DEBUG] Consulta 5 - public.users: {result5.data}")
+
+        # Consulta 6 - En auth.users (vacía)
+        result6 = db.table("auth.users").select("*").eq("email", login_data.email).execute()
+        print(f"🔍 [DEBUG] Consulta 6 - auth.users: {result6.data}")
+
+        # Rate limiting básico
+        client_ip = request.client.host
+        
+        # Usar la consulta que funcione
+        if result5.data:  # Si public.users funciona
+            user_result = result5
+            print("✅ [DEBUG] Usando public.users")
+        elif result1.data:  # Si users funciona
+            user_result = result1  
+            print("✅ [DEBUG] Usando users")
+        else:
+            user_result = result1  # Fallback
+            print("⚠️ [DEBUG] Ninguna consulta encontró datos")
+        
+        print(f"🔍 [DEBUG] Resultado final BD datos: {user_result.data}")
+        print(f"🔍 [DEBUG] Longitud de data: {len(user_result.data) if user_result.data else 0}")
+        
+        if not user_result.data:
+            print("❌ [DEBUG] USER NOT FOUND IN DATABASE")
+            
+            # Verificar variables de entorno
+            import os
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            print(f"🔍 [DEBUG] SUPABASE_URL: {supabase_url}")
+            print(f"🔍 [DEBUG] SUPABASE_KEY: {supabase_key[:20]}..." if supabase_key else "No SUPABASE_KEY")
+            
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        user = user_result.data[0]
+        print(f"✅ [DEBUG] USER FOUND: {user['email']}")
+        print(f"🔑 [DEBUG] User status: {user.get('status')}")
+        print(f"🔑 [DEBUG] User company_id: {user.get('company_id')}")
+        print(f"🔑 [DEBUG] Stored hash: {user.get('hashed_password', 'NO HASH')}")
+        
+        # Validar estado del usuario
+        if user.get("status") != "active":
+            print("❌ [DEBUG] USER NOT ACTIVE")
+            raise HTTPException(status_code=401, detail="Account is not active")
+        
+        # Validar password con debug
+        stored_hash = user.get("hashed_password", "")
+        print(f"🔍 [DEBUG] Verifying password...")
+        print(f"🔍 [DEBUG] Stored hash length: {len(stored_hash)}")
+        
+        password_valid = verify_password(login_data.password, stored_hash)
+        print(f"🔍 [DEBUG] Password valid: {password_valid}")
+        
+        if not password_valid:
+            print("❌ [DEBUG] PASSWORD VERIFICATION FAILED")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        print("✅ [DEBUG] ALL VALIDATIONS PASSED - LOGIN SUCCESS")
         
         # Actualizar último login
-        db.table("users").update({
-            "last_login": datetime.now().isoformat(),
-            "last_login_ip": client_ip
-        }).eq("id", user["id"]).execute()
+        # db.table("users").update({
+        #     "last_login": datetime.now().isoformat(),
+        #     "last_login_ip": client_ip
+        # }).eq("id", user["id"]).execute()
         
         # Crear token
         token_data = {
@@ -274,14 +291,17 @@ async def login(login_data: UserLogin, request: Request):
             "user": UserResponse(**user),
             "access_token": access_token,
             "token_type": "bearer",
-            "expires_in": 24 * 60 * 60  # 1 día en segundos
+            "expires_in": 24 * 60 * 60
         }
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"💥 [DEBUG] ERROR EN LOGIN: {str(e)}")
+        print(f"💥 [DEBUG] ERROR TYPE: {type(e)}")
+        import traceback
+        print(f"💥 [DEBUG] TRACEBACK: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
-
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
     """
@@ -406,3 +426,5 @@ async def company_admin_dashboard(manager_user: dict = Depends(require_company_a
     Ruta para company admins y super admins
     """
     return {"message": "Company admin dashboard", "user": manager_user}
+
+

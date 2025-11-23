@@ -23,7 +23,7 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    
+
     try {
       if (isLogin) {
         await login(email, password)
@@ -54,7 +54,7 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background Elements */}
       <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:bg-grid-slate-800 dark:[mask-image:linear-gradient(0deg,rgba(255,255,255,0.1),rgba(255,255,255,0.5))]"></div>
-      
+
       {/* Floating Icons */}
       <div className="absolute top-20 left-20 text-blue-200 dark:text-blue-800 animate-float">
         <Car className="w-12 h-12" />
@@ -93,23 +93,6 @@ const Login: React.FC = () => {
           </CardHeader>
           <CardContent className="pt-4">
             <form onSubmit={handleSubmit} className="space-y-5">
-              {!isLogin && (
-                <div>
-                  <label htmlFor="name" className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Nombre completo
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                    placeholder="Juan Pérez"
-                  />
-                </div>
-              )}
-              
               <div>
                 <label htmlFor="email" className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Correo electrónico
@@ -124,7 +107,7 @@ const Login: React.FC = () => {
                   placeholder="tu@email.com"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="password" className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Contraseña
@@ -139,7 +122,7 @@ const Login: React.FC = () => {
                   placeholder="••••••••"
                 />
               </div>
-              
+
               <Button
                 type="submit"
                 disabled={loading}
@@ -151,18 +134,16 @@ const Login: React.FC = () => {
                     <span>Procesando...</span>
                   </div>
                 ) : (
-                  isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'
+                  'Iniciar Sesión'
                 )}
               </Button>
-              
+
               <div className="text-center pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-200"
-                >
-                  {isLogin ? '¿Necesitas una cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
-                </button>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  ¿No tienes cuenta? El registro es por invitación.
+                  <br />
+                  Contacta al administrador de tu empresa.
+                </div>
               </div>
             </form>
           </CardContent>

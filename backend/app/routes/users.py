@@ -4,15 +4,13 @@ from typing import List, Optional
 from ..models.user import UserResponse, UserUpdate, UserRole, UserStatus, UserInvite
 from ..models.database import get_db
 from ..auth.jwt_handler import get_current_user, can_manage_users, require_super_admin, require_company_admin
-from ..auth.jwt_handler import create_access_token  # ✅ Solo importar lo que existe en jwt_handler
 import uuid
 from datetime import datetime
 import secrets
-import hashlib  # ✅ Importar hashlib directamente
+import hashlib
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-# ✅ Mover las funciones de hash aquí o importarlas desde auth
 def hash_password(password: str) -> str:
     """Hash seguro para producción"""
     salt = secrets.token_hex(16)
@@ -41,7 +39,7 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 # =============================================================================
-# RUTAS DE GESTIÓN DE USUARIOS (Company Admin y Super Admin)
+# RUTAS CORREGIDAS - TODAS USAN .execute() CONSISTENTEMENTE
 # =============================================================================
 
 @router.get("/", response_model=List[UserResponse])
@@ -58,13 +56,21 @@ async def get_company_users(
         
         # Si es super_admin, puede ver todos los usuarios (sin company_id filter)
         if admin.get("role") == "super_admin":
-            result = db.table("users").select("*").order("created_at", desc=True).range(skip, skip + limit).execute()
+            result = db.table("users").select("*").execute()
         else:
             # Company admin solo ve usuarios de su empresa
-            result = db.table("users").select("*").eq("company_id", admin["company_id"]).order("created_at", desc=True).range(skip, skip + limit).execute()
+            result = db.table("users").select("*").eq("company_id", admin["company_id"]).execute()
         
-        return result.data
+        # Ordenar manualmente y aplicar paginación
+        users = result.data
+        if users:
+            users.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            paginated_users = users[skip:skip + limit]
+            return paginated_users
+        return []
+        
     except Exception as e:
+        print(f"❌ Error en get_company_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/invite", response_model=dict)
@@ -78,22 +84,41 @@ async def invite_user(
     try:
         db = get_db()
         
-        # Verificar permisos de company_id
-        if admin.get("role") == "company_admin" and user_data.company_id != admin["company_id"]:
-            raise HTTPException(
-                status_code=403, 
-                detail="Cannot invite users to other companies"
-            )
+        print(f"🔍 Debug - Datos recibidos: {user_data}")
+        print(f"🔍 Debug - Admin: {admin}")
+        
+        # Si el admin es company_admin, usar su company_id
+        if admin.get("role") == "company_admin":
+            user_data.company_id = admin["company_id"]
+            print(f"🔍 Debug - Usando company_id del admin: {user_data.company_id}")
+        
+        # Verificar que la empresa existe
+        print(f"🔍 Debug - Verificando compañía: {user_data.company_id}")
+        company_check = db.table("companies").select("*").eq("id", user_data.company_id).execute()
+        print(f"🔍 Debug - Resultado compañía: {company_check.data}")
+        
+        if not company_check.data:
+            # Si la compañía no existe, crear una por defecto para super_admin
+            if admin.get("role") == "super_admin":
+                print("🔍 Debug - Super admin, creando compañía por defecto")
+                # Crear compañía por defecto
+                default_company = {
+                    "id": user_data.company_id if user_data.company_id else str(uuid.uuid4()),
+                    "name": "Empresa Principal",
+                    "created_by": admin["user_id"],
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+                # ✅ CORREGIDO: Usar .execute() para INSERT también
+                company_result = db.table("companies").insert(default_company).execute()
+                print(f"🔍 Debug - Compañía creada: {company_result.data}")
+            else:
+                raise HTTPException(status_code=400, detail="Company not found")
         
         # Verificar si el usuario ya existe
         existing_user = db.table("users").select("*").eq("email", user_data.email).execute()
         if existing_user.data:
             raise HTTPException(status_code=400, detail="User with this email already exists")
-        
-        # Verificar que la empresa existe
-        company_check = db.table("companies").select("id").eq("id", user_data.company_id).execute()
-        if not company_check.data:
-            raise HTTPException(status_code=400, detail="Company not found")
         
         # Generar password temporal
         temp_password = secrets.token_urlsafe(12)
@@ -113,21 +138,29 @@ async def invite_user(
             "password_reset_required": True
         }
         
+        print(f"🔍 Debug - Creando usuario: {user}")
+        # ✅ CORREGIDO: Usar .execute() para INSERT
         result = db.table("users").insert(user).execute()
+        print(f"🔍 Debug - Resultado creación usuario: {result.data}")
+        print(f"🔍 Debug - Error creación usuario: {result.error}")
         
         if result.data:
-            # En producción: enviar email con invitación y temp_password
-            # Por ahora retornamos el password temporal (solo en desarrollo)
             return {
                 "message": "User invited successfully",
                 "user": UserResponse(**result.data[0]),
-                "temp_password": temp_password,  # Solo en desarrollo - eliminar en producción
+                "temp_password": temp_password,
                 "instructions": "User must reset password on first login"
             }
         else:
-            raise HTTPException(status_code=400, detail="Error inviting user")
+            error_msg = result.error.message if result.error else "Unknown error"
+            raise HTTPException(status_code=400, detail=f"Error inviting user: {error_msg}")
             
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ Error en invite_user: {e}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -155,6 +188,7 @@ async def get_user(
         return UserResponse(**user)
         
     except Exception as e:
+        print(f"❌ Error en get_user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -169,12 +203,17 @@ async def update_user(
     try:
         db = get_db()
         
+        print(f"🔍 Debug update_user - User ID: {user_id}")
+        print(f"🔍 Debug update_user - Datos recibidos: {user_data}")
+        print(f"🔍 Debug update_user - Admin: {admin}")
+        
         # Obtener usuario actual
         current_user_result = db.table("users").select("*").eq("id", user_id).execute()
         if not current_user_result.data:
             raise HTTPException(status_code=404, detail="User not found")
         
         current_user = current_user_result.data[0]
+        print(f"🔍 Debug update_user - Usuario actual: {current_user}")
         
         # Verificar permisos
         if admin.get("role") == "company_admin":
@@ -190,17 +229,29 @@ async def update_user(
             if user_data.company_id and user_data.company_id != admin["company_id"]:
                 raise HTTPException(status_code=403, detail="Cannot change user company")
         
-        update_data = user_data.dict(exclude_unset=True)
+        update_data = user_data.dict(exclude_unset=True, exclude_none=True)
         update_data["updated_at"] = datetime.now().isoformat()
         
+        print(f"🔍 Debug update_user - Datos a actualizar: {update_data}")
+        
+        # ✅ CORREGIDO: Usar la sintaxis correcta de Supabase
         result = db.table("users").update(update_data).eq("id", user_id).execute()
+        
+        print(f"🔍 Debug update_user - Resultado: {result.data}")
+        print(f"🔍 Debug update_user - Error: {result.error}")
         
         if result.data:
             return UserResponse(**result.data[0])
         else:
-            raise HTTPException(status_code=404, detail="User not found")
+            error_msg = result.error.message if hasattr(result.error, 'message') else str(result.error)
+            raise HTTPException(status_code=400, detail=f"Error updating user: {error_msg}")
             
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ Error en update_user: {e}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{user_id}")
@@ -234,56 +285,19 @@ async def delete_user(
         if admin.get("role") == "super_admin" and user_id == admin["user_id"]:
             raise HTTPException(status_code=400, detail="Cannot delete your own account")
         
+        # ✅ CORREGIDO: Sintaxis correcta para DELETE
         result = db.table("users").delete().eq("id", user_id).execute()
         
-        if result.data:
+        if result.data is not None:
             return {"message": "User deleted successfully"}
         else:
-            raise HTTPException(status_code=404, detail="User not found")
+            error_msg = result.error.message if hasattr(result.error, 'message') else str(result.error)
+            raise HTTPException(status_code=400, detail=f"Error deleting user: {error_msg}")
             
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/{user_id}/reset-password")
-async def reset_user_password(
-    user_id: str,
-    admin: dict = Depends(can_manage_users)
-):
-    """
-    Resetear password de un usuario (Company Admin y Super Admin)
-    """
-    try:
-        db = get_db()
-        
-        # Obtener usuario
-        user_result = db.table("users").select("*").eq("id", user_id).execute()
-        if not user_result.data:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        user = user_result.data[0]
-        
-        # Verificar permisos
-        if admin.get("role") == "company_admin" and user.get("company_id") != admin["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot reset password for user from other company")
-        
-        # Generar nuevo password temporal
-        temp_password = secrets.token_urlsafe(12)
-        
-        update_result = db.table("users").update({
-            "hashed_password": hash_password(temp_password),
-            "password_reset_required": True,
-            "updated_at": datetime.now().isoformat()
-        }).eq("id", user_id).execute()
-        
-        if update_result.data:
-            # En producción: enviar email con nuevo password
-            return {
-                "message": "Password reset successfully",
-                "temp_password": temp_password,  # Solo en desarrollo
-                "user_email": user["email"]
-            }
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
-            
-    except Exception as e:
+        print(f"❌ Error en delete_user: {e}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -7,16 +7,39 @@ from ..models.database import get_db
 from ..auth.jwt_handler import require_super_admin, can_manage_companies
 import uuid
 from datetime import datetime
-
+print("🔍 [ADMIN DEBUG] admin.py cargado correctamente")
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # =============================================================================
-# RUTAS DE GESTIÓN DE EMPRESAS (Solo Super Admin)
+# RUTAS CORREGIDAS - TODAS USAN .execute() CONSISTENTEMENTE
 # =============================================================================
 
-@router.post("/companies", response_model=CompanyResponse)
+# En admin.py - CORRIGE el endpoint de test
+@router.get("/test-cors")
+async def test_admin_cors():
+    """Test específico para CORS en admin router - SIN AUTENTICACIÓN"""
+    return {
+        "message": "Admin router CORS test - SUCCESS", 
+        "timestamp": datetime.now().isoformat(),
+        "router": "admin",
+        "status": "working"
+    }
+
+@router.get("/test-auth")
+async def test_admin_auth(admin: dict = Depends(require_super_admin)):
+    """Test con autenticación de super_admin"""
+    return {
+        "message": "Admin auth test - SUCCESS", 
+        "timestamp": datetime.now().isoformat(),
+        "user": admin,
+        "authenticated": True
+    }
+
+
+
+@router.post("/companies/", response_model=CompanyResponse)
 async def create_company(
-    company_data: CompanyCreate,
+    company_data: CompanyCreate,  # ✅ Ahora sin created_by
     admin: dict = Depends(require_super_admin)
 ):
     """
@@ -24,6 +47,8 @@ async def create_company(
     """
     try:
         db = get_db()
+        
+        print(f"🔍 Debug - Creando compañía: {company_data.dict()}")
         
         # Verificar si ya existe una empresa con ese nombre
         existing_company = db.table("companies").select("*").eq("name", company_data.name).execute()
@@ -33,22 +58,32 @@ async def create_company(
         company_id = str(uuid.uuid4())
         company = {
             "id": company_id,
-            **company_data.dict(),
+            "name": company_data.name,
+            "contact_email": company_data.contact_email,
+            "contact_phone": company_data.contact_phone,
+            "address": company_data.address,
+            "status": "active",
+            "created_by": admin["user_id"],  # ✅ Asignar automáticamente desde el admin
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
         
+        print(f"🔍 Debug - Insertando compañía: {company}")
         result = db.table("companies").insert(company).execute()
+        print(f"🔍 Debug - Resultado: {result.data}, Error: {result.error}")
         
         if result.data:
             return CompanyResponse(**result.data[0])
         else:
-            raise HTTPException(status_code=400, detail="Error creating company")
+            error_msg = str(result.error) if result.error else "Unknown error"
+            raise HTTPException(status_code=400, detail=f"Error creating company: {error_msg}")
             
     except Exception as e:
+        print(f"❌ Error en create_company: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/companies", response_model=List[CompanyResponse])
+
+@router.get("/companies/", response_model=List[CompanyResponse])
 async def get_all_companies(
     skip: int = 0,
     limit: int = 100,
@@ -58,10 +93,31 @@ async def get_all_companies(
     Obtener todas las empresas (Solo Super Admin)
     """
     try:
+        print("🔍 [ADMIN DEBUG] Entrando a get_all_companies")
+        
+        # Verificar que require_super_admin funciona
+        print(f"🔍 [ADMIN DEBUG] Usuario autenticado: {admin}")
+        
         db = get_db()
-        result = db.table("companies").select("*").order("created_at", desc=True).range(skip, skip + limit).execute()
-        return result.data
+        print("🔍 [ADMIN DEBUG] Conexión a BD obtenida")
+        
+        result = db.table("companies").select("*").execute()
+        print(f"🔍 [ADMIN DEBUG] Query ejecutada: {result.data}")
+        
+        if result.data:
+            companies = result.data
+            companies.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            paginated_companies = companies[skip:skip + limit]
+            print(f"🔍 [ADMIN DEBUG] Retornando {len(paginated_companies)} compañías")
+            return paginated_companies
+        
+        print("🔍 [ADMIN DEBUG] No hay compañías, retornando lista vacía")
+        return []
+        
     except Exception as e:
+        print(f"❌ [ADMIN DEBUG] ERROR en get_all_companies: {e}")
+        import traceback
+        print(f"❌ [ADMIN DEBUG] Traceback completo: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/companies/{company_id}", response_model=CompanyWithUsers)
@@ -87,10 +143,11 @@ async def get_company_with_users(
         
         return CompanyWithUsers(
             **company,
-            users=users_result.data
+            users=users_result.data or []
         )
         
     except Exception as e:
+        print(f"❌ Error en get_company_with_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/companies/{company_id}", response_model=CompanyResponse)
@@ -110,17 +167,22 @@ async def update_company(
         if not check_result.data:
             raise HTTPException(status_code=404, detail="Company not found")
         
-        update_data = company_data.dict(exclude_unset=True)
+        update_data = company_data.dict(exclude_unset=True, exclude_none=True)
         update_data["updated_at"] = datetime.now().isoformat()
         
+        print(f"🔍 Debug - Actualizando compañía: {update_data}")
+        # ✅ CORREGIDO: Usar .execute() para UPDATE
         result = db.table("companies").update(update_data).eq("id", company_id).execute()
+        print(f"🔍 Debug - Resultado: {result.data}, Error: {result.error}")
         
         if result.data:
             return CompanyResponse(**result.data[0])
         else:
-            raise HTTPException(status_code=404, detail="Company not found")
+            error_msg = result.error.message if result.error else "Unknown error"
+            raise HTTPException(status_code=400, detail=f"Error updating company: {error_msg}")
             
     except Exception as e:
+        print(f"❌ Error en update_company: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/companies/{company_id}")
@@ -130,7 +192,6 @@ async def delete_company(
 ):
     """
     Eliminar una empresa (Solo Super Admin)
-    IMPORTANTE: Esto eliminará todos los datos asociados
     """
     try:
         db = get_db()
@@ -140,102 +201,67 @@ async def delete_company(
         if not check_result.data:
             raise HTTPException(status_code=404, detail="Company not found")
         
-        # Eliminar empresa (esto activará cascada si está configurado en la BD)
+        # Verificar que no hay usuarios en esta empresa
+        users_result = db.table("users").select("*").eq("company_id", company_id).execute()
+        if users_result.data:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete company with active users. Please reassign or delete users first."
+            )
+        
+        # ✅ CORREGIDO: Usar .execute() para DELETE
         result = db.table("companies").delete().eq("id", company_id).execute()
         
-        if result.data:
+        if result.data is not None:
             return {"message": "Company deleted successfully"}
         else:
-            raise HTTPException(status_code=404, detail="Company not found")
+            error_msg = result.error.message if result.error else "Unknown error"
+            raise HTTPException(status_code=400, detail=f"Error deleting company: {error_msg}")
             
     except Exception as e:
+        print(f"❌ Error en delete_company: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# RUTAS DE ESTADÍSTICAS GLOBALES (Solo Super Admin)
-# =============================================================================
-
-@router.get("/stats/overview")
-async def get_global_stats(admin: dict = Depends(require_super_admin)):
-    """
-    Obtener estadísticas globales del sistema (Solo Super Admin)
-    """
+    
+    # En admin.py - agrega esto al final
+@router.get("/test-admin-cors")
+async def test_admin_cors():
+    """Test específico para verificar CORS en el router de admin"""
+    return {
+        "message": "Admin CORS test successful", 
+        "timestamp": datetime.now().isoformat(),
+        "router": "admin"
+    }
+    
+# En admin.py - AGREGA este endpoint que usa la estructura EXACTA de tu BD
+@router.post("/create-company-now")
+async def create_company_now(
+    request: dict,
+    admin: dict = Depends(require_super_admin)
+):
+    """Crea compañía usando la estructura EXACTA de tu BD"""
     try:
         db = get_db()
         
-        # Contar empresas
-        companies_count = db.table("companies").select("id", count="exact").execute()
-        
-        # Contar usuarios por rol
-        users_count = db.table("users").select("role").execute()
-        
-        # Contar vehículos totales
-        vehicles_count = db.table("vehicles").select("id", count="exact").execute()
-        
-        # Contar registros de combustible
-        fuel_records_count = db.table("fuel_records").select("id", count="exact").execute()
-        
-        # Contar mantenimientos
-        maintenance_count = db.table("maintenance").select("id", count="exact").execute()
-        
-        # Agrupar usuarios por rol
-        role_counts = {}
-        for user in users_count.data:
-            role = user.get('role', 'worker')
-            role_counts[role] = role_counts.get(role, 0) + 1
-        
-        return {
-            "total_companies": companies_count.count or 0,
-            "total_users": len(users_count.data),
-            "total_vehicles": vehicles_count.count or 0,
-            "total_fuel_records": fuel_records_count.count or 0,
-            "total_maintenance": maintenance_count.count or 0,
-            "users_by_role": role_counts,
-            "timestamp": datetime.now().isoformat()
+        company_id = str(uuid.uuid4())
+        company = {
+            "id": company_id,
+            "name": request.get("name", "Sin nombre"),
+            "contact_email": request.get("contact_email"),
+            "contact_phone": request.get("contact_phone"),  # ✅ CORRECTO según tu BD
+            "address": request.get("address"),
+            "status": "active",
+            "created_by": admin["user_id"],
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
         }
         
+        print(f"🔍 Insertando compañía con estructura EXACTA: {company}")
+        result = db.table("companies").insert(company).execute()
+        
+        if result.data:
+            return {"success": True, "company": result.data[0]}
+        else:
+            return {"success": False, "error": str(result.error)}
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/stats/companies")
-async def get_companies_stats(admin: dict = Depends(require_super_admin)):
-    """
-    Obtener estadísticas detalladas por empresa (Solo Super Admin)
-    """
-    try:
-        db = get_db()
-        
-        # Obtener todas las empresas
-        companies = db.table("companies").select("*").execute().data
-        
-        companies_stats = []
-        
-        for company in companies:
-            company_id = company['id']
-            
-            # Contar usuarios de la empresa
-            users_count = db.table("users").select("id", count="exact").eq("company_id", company_id).execute()
-            
-            # Contar vehículos de la empresa
-            vehicles_count = db.table("vehicles").select("id", count="exact").eq("company_id", company_id).execute()
-            
-            # Contar registros de combustible de la empresa
-            fuel_count = db.table("fuel_records").select("id", count="exact").eq("company_id", company_id).execute()
-            
-            companies_stats.append({
-                "company_id": company_id,
-                "company_name": company['name'],
-                "status": company.get('status', 'active'),
-                "total_users": users_count.count or 0,
-                "total_vehicles": vehicles_count.count or 0,
-                "total_fuel_records": fuel_count.count or 0,
-                "created_at": company.get('created_at')
-            })
-        
-        return {
-            "companies": companies_stats,
-            "total": len(companies_stats)
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"success": False, "error": str(e)}

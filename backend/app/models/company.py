@@ -17,7 +17,8 @@ class CompanyBase(BaseModel):
     status: CompanyStatus = CompanyStatus.ACTIVE
 
 class CompanyCreate(CompanyBase):
-    created_by: str  # user_id del super_admin que crea la empresa
+    # ✅ created_by se asigna automáticamente en el backend, no viene del frontend
+    pass
 
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None

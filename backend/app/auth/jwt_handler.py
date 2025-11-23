@@ -164,10 +164,22 @@ async def require_role(required_role: str):
         return user
     return role_dependency
 
+# CORRIGE las funciones al final del archivo:
+
 # Dependencies específicos para cada rol
 async def require_super_admin(user: dict = Depends(get_current_user)):
-    """Solo para Super Admin (tú)"""
-    return await require_role("super_admin")(user)
+    """Solo para Super Admin"""
+    print(f"🔍 [AUTH DEBUG] require_super_admin - Usuario: {user}")
+    
+    if not has_role(user, "super_admin"):
+        print(f"❌ [AUTH DEBUG] Acceso denegado - Rol: {user.get('role')}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requires super admin privileges"
+        )
+    
+    print("✅ [AUTH DEBUG] Acceso permitido para super_admin")
+    return user
 
 async def require_company_admin(user: dict = Depends(get_current_user)):
     """Para Company Admin y Super Admin"""
@@ -198,4 +210,9 @@ async def can_manage_companies(user: dict = Depends(get_current_user)):
     """
     Dependency para gestionar empresas (solo super_admin)
     """
-    return await require_role("super_admin")(user)
+    if not has_role(user, "super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin privileges required to manage companies"
+        )
+    return user

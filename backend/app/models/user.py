@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, validator
 from typing import Optional
 from enum import Enum
+from datetime import datetime
 
 class UserRole(str, Enum):
     SUPER_ADMIN = "super_admin"
@@ -35,15 +36,23 @@ class UserCreate(UserBase):
         return v
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str  # ← Cambia EmailStr a str
     password: str
     company_id: Optional[str] = None
 
+# En tu archivo de modelos (user.py)
 class UserUpdate(BaseModel):
-    name: Optional[str]
-    role: Optional[UserRole]
-    status: Optional[UserStatus]
-    company_id: Optional[str]
+    name: Optional[str] = None
+    role: Optional[UserRole] = None
+    status: Optional[UserStatus] = None
+    company_id: Optional[str] = None
+    
+    class Config:
+        # Esto ayuda con la serialización de enums
+        use_enum_values = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 class UserResponse(UserBase):
     id: str
