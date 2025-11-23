@@ -1,8 +1,8 @@
-# backend/scripts/init_database.py
 import hashlib
 import secrets
 import uuid
 from datetime import datetime
+import os
 
 def hash_password(password: str) -> str:
     """Mismo algoritmo que usa tu auth.py"""
@@ -16,17 +16,20 @@ def hash_password(password: str) -> str:
     return f"{hashed_password}:{salt}"
 
 def init_default_user():
-    """Inicializa el usuario por defecto para desarrollo y producción"""
+    """Inicializa el usuario por defecto para producción"""
+    
+    # ⚠️ CONTRASEÑA DESDE VARIABLE DE ENTORNO - SEGURO PARA PRODUCCIÓN
+    DEFAULT_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "Kellyta.2017")
     
     # Configuración del usuario por defecto
     DEFAULT_USER = {
-        "id": "95dba2b9-4183-46d4-94dc-fa7094697156",  # Mismo ID que ya tienes
+        "id": "95dba2b9-4183-46d4-94dc-fa7094697156",
         "email": "urribarriisabel5@gmail.com",
         "name": "Super Administrador",
-        "company_id": "b761fd8f-75ee-4352-83e1-01cc461ebd0d",  # ID de tu company
+        "company_id": "b761fd8f-75ee-4352-83e1-01cc461ebd0d",
         "role": "super_admin",
         "status": "active",
-        "password": "Kellyta.2017"  # La contraseña que quieres usar
+        "password": DEFAULT_PASSWORD  # Desde variable de entorno
     }
     
     try:
@@ -41,7 +44,7 @@ def init_default_user():
             user = existing_user.data[0]
             print(f"✅ Usuario encontrado: {user['email']}")
             
-            # Actualizar contraseña al valor correcto
+            # Actualizar contraseña
             db.table("users").update({
                 "hashed_password": hash_password(DEFAULT_USER["password"]),
                 "status": "active",
@@ -69,8 +72,7 @@ def init_default_user():
             print("✅ Usuario creado correctamente")
         
         print(f"🎯 Usuario listo: {DEFAULT_USER['email']}")
-        print(f"🔑 Contraseña: {DEFAULT_USER['password']}")
-        print("📍 Puedes usar estas credenciales en desarrollo y producción")
+        print("📍 Configuración completada para producción")
         
     except Exception as e:
         print(f"❌ Error inicializando usuario: {str(e)}")

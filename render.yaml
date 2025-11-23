@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: road-service-api
+    env: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && bash start.sh
+    envVars:
+      - key: SUPABASE_URL
+        value: https://ebupnjvrxokdpvjizhlj.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVidXBuanZyeG9rZHB2aml6aGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0NDU1NzAsImV4cCI6MjA3OTAyMTU3MH0.R1LZm5dbqGOX4sdvDYmpsisifO9AFBkjdFdsCVE258M
+      - key: SECRET_KEY
+        value: 63f4945d921d599f27ae4fdf5bada3f1
+      - key: DEFAULT_ADMIN_PASSWORD
+        value: Kellyta.2017
+      - key: CORS_ORIGINS
+        value: https://TU_DOMINIO_VERCEL_AQUI.vercel.app,http://localhost:5173
