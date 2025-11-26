@@ -14,4 +14,4 @@ export function formatCurrency(amount: number): string {
 
 export function formatDate(date: string): string {
   return new Date(date).toLocaleDateString('es-ES')
-}
+} 
