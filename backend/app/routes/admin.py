@@ -94,18 +94,23 @@ async def get_all_companies(
     """
     try:
         print("🔍 [ADMIN DEBUG] Entrando a get_all_companies")
-        
-        # Verificar que require_super_admin funciona
         print(f"🔍 [ADMIN DEBUG] Usuario autenticado: {admin}")
         
         db = get_db()
         print("🔍 [ADMIN DEBUG] Conexión a BD obtenida")
         
+        # ✅ CORREGIDO: Manejar compañías con created_by = None
         result = db.table("companies").select("*").execute()
-        print(f"🔍 [ADMIN DEBUG] Query ejecutada: {result.data}")
+        print(f"🔍 [ADMIN DEBUG] Query ejecutada: {len(result.data)} compañías")
         
         if result.data:
-            companies = result.data
+            companies = []
+            for company in result.data:
+                # ✅ Asegurar que created_by tenga valor válido
+                if company.get('created_by') is None:
+                    company['created_by'] = "system"  # Valor por defecto
+                companies.append(company)
+            
             companies.sort(key=lambda x: x.get('created_at', ''), reverse=True)
             paginated_companies = companies[skip:skip + limit]
             print(f"🔍 [ADMIN DEBUG] Retornando {len(paginated_companies)} compañías")
@@ -119,6 +124,7 @@ async def get_all_companies(
         import traceback
         print(f"❌ [ADMIN DEBUG] Traceback completo: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/companies/{company_id}", response_model=CompanyWithUsers)
 async def get_company_with_users(
@@ -156,34 +162,31 @@ async def update_company(
     company_data: CompanyUpdate,
     admin: dict = Depends(require_super_admin)
 ):
-    """
-    Actualizar una empresa (Solo Super Admin)
-    """
     try:
         db = get_db()
         
         # Verificar que la empresa existe
-        check_result = db.table("companies").select("id").eq("id", company_id).execute()
+        check_result = db.table("companies").select("*").eq("id", company_id).execute()
         if not check_result.data:
             raise HTTPException(status_code=404, detail="Company not found")
         
         update_data = company_data.dict(exclude_unset=True, exclude_none=True)
         update_data["updated_at"] = datetime.now().isoformat()
         
-        print(f"🔍 Debug - Actualizando compañía: {update_data}")
-        # ✅ CORREGIDO: Usar .execute() para UPDATE
+        # ACTUALIZAR usando .update() correctamente
         result = db.table("companies").update(update_data).eq("id", company_id).execute()
-        print(f"🔍 Debug - Resultado: {result.data}, Error: {result.error}")
         
         if result.data:
-            return CompanyResponse(**result.data[0])
+            # Obtener la compañía actualizada
+            updated_company = db.table("companies").select("*").eq("id", company_id).execute()
+            return CompanyResponse(**updated_company.data[0])
         else:
-            error_msg = result.error.message if result.error else "Unknown error"
-            raise HTTPException(status_code=400, detail=f"Error updating company: {error_msg}")
+            raise HTTPException(status_code=400, detail="Error updating company")
             
     except Exception as e:
         print(f"❌ Error en update_company: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.delete("/companies/{company_id}")
 async def delete_company(

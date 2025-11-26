@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 class InventoryBase(BaseModel):
     vehicle_id: str
@@ -24,7 +25,7 @@ class Inventory(InventoryBase):
     id: str
     status: str  # "available" o "low" - calculado automáticamente
     last_updated: str
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

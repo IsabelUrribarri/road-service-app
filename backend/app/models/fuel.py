@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import date
+from datetime import datetime
 
 class FuelRecordBase(BaseModel):
     vehicle_id: str
@@ -25,7 +25,7 @@ class FuelRecord(FuelRecordBase):
     id: str
     consumption: float  # Calculado: miles_driven / fuel_amount
     total_cost: float   # Calculado: fuel_amount * fuel_price
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

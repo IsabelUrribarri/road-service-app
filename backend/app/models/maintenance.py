@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import date
+from datetime import datetime
 
 class MaintenanceBase(BaseModel):
     vehicle_id: str
@@ -25,7 +25,7 @@ class MaintenanceUpdate(BaseModel):
 class Maintenance(MaintenanceBase):
     id: str
     status: str = "pending"  # ← NUEVO: pending, completed, cancelled
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

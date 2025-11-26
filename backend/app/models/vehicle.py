@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 class VehicleBase(BaseModel):
     unit_id: str
@@ -23,7 +24,7 @@ class VehicleUpdate(BaseModel):
 
 class Vehicle(VehicleBase):
     id: str
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

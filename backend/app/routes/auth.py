@@ -150,145 +150,54 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
 
-    # ⚠️ ELIMINA TODO ESTE CÓDIGO QUE ESTÁ DESPUÉS - ESTÁ INALCANZABLE ⚠️
-# En auth.py - mantener solo lo esencial
+
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
+    """
+    Login de usuario usando función de base de datos segura
+    """
+    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (FUNCIÓN BD) ===")
+    print(f"🎯 [DEBUG] Email: {login_data.email}")
+    
     try:
         db = get_db()
-        user_result = db.table("users").select("*").eq("email", login_data.email).execute()
         
-        if not user_result.data:
+        # 🔐 USAR FUNCIÓN DE BASE DE DATOS - MÁS SEGURO
+        result = db.rpc(
+            'authenticate_user', 
+            {
+                'email': login_data.email,
+                'password': login_data.password
+            }
+        ).execute()
+        
+        print(f"🔍 [DEBUG] Resultado función BD: {result.data}")
+        
+        if not result.data or len(result.data) == 0:
+            print("❌ [DEBUG] AUTENTICACIÓN FALLIDA - Credenciales inválidas")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        user = user_result.data[0]
-        
-        if not verify_password(login_data.password, user.get("hashed_password", "")):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        # Crear token y retornar respuesta...
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
-    
-    """
-    Login de usuario con validaciones de seguridad
-    """
-    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT ===")
-    print(f"🎯 [DEBUG] login_data type: {type(login_data)}")
-    print(f"🎯 [DEBUG] login_data: {login_data}")
-    print(f"🎯 [DEBUG] login_data.dict(): {login_data.dict()}")
-    
-    try:
-        db = get_db()  # ← ESTA LÍNEA DEBE IR PRIMERO
-        
-        print(f"🔐 [DEBUG] Email: {login_data.email}")
-        print(f"🔐 [DEBUG] Password: {login_data.password}")
-        print(f"🔐 [DEBUG] Company ID: {login_data.company_id}")
-        
-        # 🔍 DEBUG DE CONEXIÓN - TODAS LAS CONSULTAS AQUÍ
-        print("🔍 [DEBUG] Probando diferentes consultas...")
-
-        # Consulta 1 - La actual
-        result1 = db.table("users").select("*").eq("email", login_data.email).execute()
-        print(f"🔍 [DEBUG] Consulta 1 - users: {result1.data}")
-
-        # Consulta 2 - Con ilike (case insensitive)  
-        # result2 = db.table("users").select("*").ilike("email", login_data.email).execute()
-        # print(f"🔍 [DEBUG] Consulta 2 - ilike: {result2.data}")
-
-        # Consulta 3 - Buscar todos los usuarios para debug
-        result3 = db.table("users").select("email, id").limit(5).execute()
-        print(f"🔍 [DEBUG] Consulta 3 - todos: {result3.data}")
-
-        # Consulta 4 - Buscar por ID en lugar de email
-        result4 = db.table("users").select("*").eq("id", "95dba2b9-4183-46d4-94dc-fa7094697156").execute()
-        print(f"🔍 [DEBUG] Consulta 4 - por ID: {result4.data}")
-        
-        # Consulta 5 - En public.users
-        result5 = db.table("public.users").select("*").eq("email", login_data.email).execute()
-        print(f"🔍 [DEBUG] Consulta 5 - public.users: {result5.data}")
-
-        # Consulta 6 - En auth.users (vacía)
-        result6 = db.table("auth.users").select("*").eq("email", login_data.email).execute()
-        print(f"🔍 [DEBUG] Consulta 6 - auth.users: {result6.data}")
-
-        # Rate limiting básico
-        client_ip = request.client.host
-        
-        # Usar la consulta que funcione
-        if result5.data:  # Si public.users funciona
-            user_result = result5
-            print("✅ [DEBUG] Usando public.users")
-        elif result1.data:  # Si users funciona
-            user_result = result1  
-            print("✅ [DEBUG] Usando users")
-        else:
-            user_result = result1  # Fallback
-            print("⚠️ [DEBUG] Ninguna consulta encontró datos")
-        
-        print(f"🔍 [DEBUG] Resultado final BD datos: {user_result.data}")
-        print(f"🔍 [DEBUG] Longitud de data: {len(user_result.data) if user_result.data else 0}")
-        
-        if not user_result.data:
-            print("❌ [DEBUG] USER NOT FOUND IN DATABASE")
-            
-            # Verificar variables de entorno
-            import os
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_KEY")
-            print(f"🔍 [DEBUG] SUPABASE_URL: {supabase_url}")
-            print(f"🔍 [DEBUG] SUPABASE_KEY: {supabase_key[:20]}..." if supabase_key else "No SUPABASE_KEY")
-            
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        user = user_result.data[0]
-        print(f"✅ [DEBUG] USER FOUND: {user['email']}")
-        print(f"🔑 [DEBUG] User status: {user.get('status')}")
-        print(f"🔑 [DEBUG] User company_id: {user.get('company_id')}")
-        print(f"🔑 [DEBUG] Stored hash: {user.get('hashed_password', 'NO HASH')}")
-        
-        # Validar estado del usuario
-        if user.get("status") != "active":
-            print("❌ [DEBUG] USER NOT ACTIVE")
-            raise HTTPException(status_code=401, detail="Account is not active")
-        
-        # Validar password con debug
-        stored_hash = user.get("hashed_password", "")
-        print(f"🔍 [DEBUG] Verifying password...")
-        print(f"🔍 [DEBUG] Stored hash length: {len(stored_hash)}")
-        
-        password_valid = verify_password(login_data.password, stored_hash)
-        print(f"🔍 [DEBUG] Password valid: {password_valid}")
-        
-        if not password_valid:
-            print("❌ [DEBUG] PASSWORD VERIFICATION FAILED")
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        print("✅ [DEBUG] ALL VALIDATIONS PASSED - LOGIN SUCCESS")
-        
-        # Actualizar último login
-        # db.table("users").update({
-        #     "last_login": datetime.now().isoformat(),
-        #     "last_login_ip": client_ip
-        # }).eq("id", user["id"]).execute()
+        user_data = result.data[0]
+        print(f"✅ [DEBUG] AUTENTICACIÓN EXITOSA: {user_data['user_email']}")
         
         # Crear token
         token_data = {
-            "sub": login_data.email,
-            "user_id": user["id"],
-            "name": user["name"],
-            "company_id": user.get("company_id", "default"),
-            "role": user.get("role", "user")
+            "sub": user_data["user_email"],
+            "user_id": str(user_data["user_id"]),
+            "name": user_data["user_name"],
+            "company_id": str(user_data["company_id"]),
+            "role": user_data["user_role"]
         }
         
         access_token = create_access_token(token_data)
         
+        # Obtener datos completos del usuario para la respuesta
+        user_full = db.table("users").select("*").eq("id", user_data["user_id"]).execute()
+        user_complete = user_full.data[0] if user_full.data else user_data
+        
         return {
             "message": "Login successful",
-            "user": UserResponse(**user),
+            "user": UserResponse(**user_complete),
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": 24 * 60 * 60
@@ -297,11 +206,11 @@ async def login(login_data: UserLogin, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"💥 [DEBUG] ERROR EN LOGIN: {str(e)}")
-        print(f"💥 [DEBUG] ERROR TYPE: {type(e)}")
+        print(f"💥 [DEBUG] ERROR EN LOGIN (FUNCIÓN BD): {str(e)}")
         import traceback
         print(f"💥 [DEBUG] TRACEBACK: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
     """

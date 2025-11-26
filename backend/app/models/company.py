@@ -29,9 +29,9 @@ class CompanyUpdate(BaseModel):
 
 class CompanyResponse(CompanyBase):
     id: str
-    created_at: str
-    updated_at: Optional[str]
-    created_by: str
+    created_at: datetime
+    updated_at: Optional[datetime]
+    created_by: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -44,7 +44,7 @@ class CompanyStats(BaseModel):
     total_fuel_records: int
     total_maintenance: int
     active_users: int
-    created_at: str
+    created_at: datetime
 
 # Modelo para respuesta con usuarios
 class CompanyWithUsers(CompanyResponse):
