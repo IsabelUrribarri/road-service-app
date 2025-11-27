@@ -156,13 +156,12 @@ async def login(login_data: UserLogin, request: Request):
     """
     Login de usuario usando función de base de datos segura
     """
-    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (FUNCIÓN BD) ===")
-    print(f"🎯 [DEBUG] Email: {login_data.email}")
+    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (RPC) ===")
     
     try:
         db = get_db()
         
-        # 🔐 USAR FUNCIÓN DE BASE DE DATOS - MÁS SEGURO
+        # 🔐 USAR FUNCIÓN RPC - MÁXIMA SEGURIDAD
         result = db.rpc(
             'authenticate_user', 
             {
@@ -171,10 +170,10 @@ async def login(login_data: UserLogin, request: Request):
             }
         ).execute()
         
-        print(f"🔍 [DEBUG] Resultado función BD: {result.data}")
+        print(f"🔍 [DEBUG] Resultado RPC: {result.data}")
         
         if not result.data or len(result.data) == 0:
-            print("❌ [DEBUG] AUTENTICACIÓN FALLIDA - Credenciales inválidas")
+            print("❌ [DEBUG] AUTENTICACIÓN FALLIDA")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user_data = result.data[0]
@@ -191,13 +190,16 @@ async def login(login_data: UserLogin, request: Request):
         
         access_token = create_access_token(token_data)
         
-        # Obtener datos completos del usuario para la respuesta
-        user_full = db.table("users").select("*").eq("id", user_data["user_id"]).execute()
-        user_complete = user_full.data[0] if user_full.data else user_data
-        
         return {
             "message": "Login successful",
-            "user": UserResponse(**user_complete),
+            "user": {
+                "id": user_data["user_id"],
+                "email": user_data["user_email"],
+                "name": user_data["user_name"],
+                "company_id": user_data["company_id"],
+                "role": user_data["user_role"],
+                "status": "active"
+            },
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": 24 * 60 * 60
@@ -206,10 +208,9 @@ async def login(login_data: UserLogin, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"💥 [DEBUG] ERROR EN LOGIN (FUNCIÓN BD): {str(e)}")
-        import traceback
-        print(f"💥 [DEBUG] TRACEBACK: {traceback.format_exc()}")
+        print(f"💥 [DEBUG] ERROR EN LOGIN (RPC): {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+
 
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):

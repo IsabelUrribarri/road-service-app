@@ -165,6 +165,49 @@ class TableQuery:
         except Exception as e:
             error_msg = f"Request failed: {str(e)}"
             return type('obj', (object,), {'data': None, 'error': error_msg})()
+
+def rpc(self, function_name: str, params: Dict[str, Any] = None) -> 'RPCQuery':
+    """
+    Ejecuta funciones de PostgreSQL (RPC)
+    """
+    return RPCQuery(self, function_name, params or {})
+
+class RPCQuery:
+    def __init__(self, client: SupabaseClient, function_name: str, params: Dict[str, Any]):
+        self.client = client
+        self.function_name = function_name
+        self.params = params
+    
+    def execute(self) -> Dict[str, Any]:
+        """
+        Ejecuta la función RPC
+        """
+        try:
+            headers = {
+                "apikey": self.client.key,
+                "Authorization": f"Bearer {self.client.key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation"
+            }
+            
+            response = requests.post(
+                f"{self.client.base_url}/rpc/{self.function_name}",
+                headers=headers,
+                json=self.params,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 201]:
+                result_data = response.json() if response.content else []
+                return type('obj', (object,), {'data': result_data, 'error': None})()
+            else:
+                error_msg = f"RPC HTTP {response.status_code}: {response.text}"
+                return type('obj', (object,), {'data': None, 'error': error_msg})()
+                
+        except Exception as e:
+            error_msg = f"RPC request failed: {str(e)}"
+            return type('obj', (object,), {'data': None, 'error': error_msg})()
+
 # Cliente global de Supabase
 supabase = SupabaseClient()
 
