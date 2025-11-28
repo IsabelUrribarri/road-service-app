@@ -1,5 +1,5 @@
 # backend/app/routes/users.py
-from fastapi import APIRouter, HTTPException, Depends, Request  # ← AGREGAR Request
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 from ..models.user import UserResponse, UserUpdate, UserRole, UserStatus, UserInvite
 from ..models.database import get_db
@@ -12,13 +12,13 @@ import hashlib
 router = APIRouter(prefix="/users", tags=["users"])
 
 def hash_password(password: str) -> str:
-    """Hash seguro para producción"""
+    """Hash seguro para producción usando salt y múltiples iteraciones"""
     salt = secrets.token_hex(16)
     hashed_password = hashlib.pbkdf2_hmac(
         'sha256',
         password.encode('utf-8'),
         salt.encode('utf-8'),
-        100000
+        100000  # 100,000 iteraciones para mayor seguridad
     ).hex()
     return f"{hashed_password}:{salt}"
 
@@ -39,15 +39,15 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 # =============================================================================
-# RUTAS ACTUALIZADAS - ARQUITECTURA PROFESIONAL
+# RUTAS OPTIMIZADAS Y SEGURAS
 # =============================================================================
 
 @router.get("/", response_model=List[UserResponse])
 async def get_company_users(
-    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    request: Request,
     skip: int = 0,
     limit: int = 100,
-    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+    admin: dict = Depends(can_manage_users)
 ):
     """
     Obtener todos los usuarios de la empresa (Company Admin y Super Admin)
@@ -55,11 +55,11 @@ async def get_company_users(
     try:
         db = get_db()
         
-        # Si es super_admin, puede ver todos los usuarios (sin company_id filter)
+        # 🔐 SEGURIDAD: Si es super_admin, puede ver todos los usuarios
         if admin.get("role") == "super_admin":
             result = db.table("users").select("*").execute()
         else:
-            # Company admin solo ve usuarios de su empresa
+            # 🔐 SEGURIDAD: Company admin solo ve usuarios de su empresa
             result = db.table("users").select("*").eq("company_id", admin["company_id"]).execute()
         
         # Ordenar manualmente y aplicar paginación
@@ -76,34 +76,40 @@ async def get_company_users(
 
 @router.post("/invite", response_model=dict)
 async def invite_user(
-    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    request: Request,
     user_data: UserInvite,
-    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+    admin: dict = Depends(can_manage_users)
 ):
     """
     Invitar un nuevo usuario a la empresa (Company Admin y Super Admin)
+    CON VALIDACIONES DE SEGURIDAD AVANZADAS
     """
     try:
         db = get_db()
         
-        print(f"🔍 Debug - Datos recibidos: {user_data}")
-        print(f"🔍 Debug - Admin: {admin}")
+        print(f"🔍 [SECURITY] Invitación iniciada por: {admin.get('email')}")
+        print(f"🔍 [SECURITY] Datos recibidos: {user_data}")
         
-        # Si el admin es company_admin, usar su company_id
+        # 🔐 VALIDACIÓN DE SEGURIDAD 1: Company admin no puede crear super_admins
+        if admin.get("role") == "company_admin" and user_data.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(
+                status_code=403, 
+                detail="Company admins cannot create super admin users"
+            )
+        
+        # 🔐 VALIDACIÓN DE SEGURIDAD 2: Company admin solo puede crear en su compañía
         if admin.get("role") == "company_admin":
             user_data.company_id = admin["company_id"]
-            print(f"🔍 Debug - Usando company_id del admin: {user_data.company_id}")
+            print(f"🔍 [SECURITY] Company admin usando company_id: {user_data.company_id}")
         
-        # Verificar que la empresa existe
-        print(f"🔍 Debug - Verificando compañía: {user_data.company_id}")
+        # 🔐 VALIDACIÓN DE SEGURIDAD 3: Verificar que la empresa existe
+        print(f"🔍 [SECURITY] Verificando compañía: {user_data.company_id}")
         company_check = db.table("companies").select("*").eq("id", user_data.company_id).execute()
-        print(f"🔍 Debug - Resultado compañía: {company_check.data}")
         
         if not company_check.data:
-            # Si la compañía no existe, crear una por defecto para super_admin
+            # Si la compañía no existe, crear una por defecto SOLO para super_admin
             if admin.get("role") == "super_admin":
-                print("🔍 Debug - Super admin, creando compañía por defecto")
-                # Crear compañía por defecto
+                print("🔍 [SECURITY] Super admin creando compañía por defecto")
                 default_company = {
                     "id": user_data.company_id if user_data.company_id else str(uuid.uuid4()),
                     "name": "Empresa Principal",
@@ -112,17 +118,17 @@ async def invite_user(
                     "updated_at": datetime.now().isoformat()
                 }
                 company_result = db.table("companies").insert(default_company).execute()
-                print(f"🔍 Debug - Compañía creada: {company_result.data}")
+                print(f"🔍 [SECURITY] Compañía creada: {company_result.data}")
             else:
                 raise HTTPException(status_code=400, detail="Company not found")
         
-        # Verificar si el usuario ya existe
+        # 🔐 VALIDACIÓN DE SEGURIDAD 4: Verificar si el usuario ya existe
         existing_user = db.table("users").select("*").eq("email", user_data.email).execute()
         if existing_user.data:
             raise HTTPException(status_code=400, detail="User with this email already exists")
         
-        # Generar password temporal
-        temp_password = secrets.token_urlsafe(12)
+        # 🔐 VALIDACIÓN DE SEGURIDAD 5: Generar password temporal seguro
+        temp_password = secrets.token_urlsafe(16)  # 16 bytes de entropía
         
         user_id = str(uuid.uuid4())
         user = {
@@ -136,41 +142,56 @@ async def invite_user(
             "created_at": datetime.now().isoformat(),
             "created_by": admin["user_id"],
             "is_invited": True,
-            "password_reset_required": True
+            "password_reset_required": True,
+            "last_login": None,
+            "updated_at": datetime.now().isoformat()
         }
         
-        print(f"🔍 Debug - Creando usuario: {user}")
+        print(f"🔍 [SECURITY] Creando usuario con datos seguros")
         result = db.table("users").insert(user).execute()
-        print(f"🔍 Debug - Resultado creación usuario: {result.data}")
-        print(f"🔍 Debug - Error creación usuario: {result.error}")
         
+        # 🔐 MANEJO PROFESIONAL DE ERRORES
         if result.data:
+            print(f"✅ [SECURITY] Usuario creado exitosamente: {user_data.email}")
             return {
                 "message": "User invited successfully",
                 "user": UserResponse(**result.data[0]),
-                "temp_password": temp_password,
-                "instructions": "User must reset password on first login"
+                "temp_password": temp_password,  # ⚠️ En producción, enviar por email
+                "instructions": "User must reset password on first login",
+                "security_note": "Temporary password should be transmitted securely"
             }
         else:
-            error_msg = result.error.message if result.error else "Unknown error"
-            raise HTTPException(status_code=400, detail=f"Error inviting user: {error_msg}")
+            # Manejo profesional de errores de base de datos
+            error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown database error"
+            
+            # 🔐 DETECCIÓN ESPECÍFICA DE ERRORES DE SEGURIDAD
+            if "row-level security" in error_msg.lower():
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Security policy violation: Insufficient permissions to create user"
+                )
+            elif "duplicate key" in error_msg.lower():
+                raise HTTPException(status_code=400, detail="User with this email already exists")
+            else:
+                raise HTTPException(status_code=400, detail=f"Database error: {error_msg}")
             
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en invite_user: {e}")
+        print(f"❌ [SECURITY] Error crítico en invite_user: {e}")
         import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error during user invitation")
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
-    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    request: Request,
     user_id: str,
-    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+    admin: dict = Depends(can_manage_users)
 ):
     """
     Obtener un usuario específico (Company Admin y Super Admin)
+    CON VALIDACIÓN DE PERMISOS
     """
     try:
         db = get_db()
@@ -182,32 +203,37 @@ async def get_user(
         
         user = user_result.data[0]
         
-        # Verificar permisos (company_admin solo puede ver usuarios de su empresa)
+        # 🔐 VALIDACIÓN DE SEGURIDAD: Company admin solo puede ver usuarios de su empresa
         if admin.get("role") == "company_admin" and user.get("company_id") != admin["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot access user from other company")
+            raise HTTPException(
+                status_code=403, 
+                detail="Cannot access user from other company"
+            )
         
         return UserResponse(**user)
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error en get_user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{user_id}", response_model=UserResponse)
 async def update_user(
-    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    request: Request,
     user_id: str,
     user_data: UserUpdate,
-    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+    admin: dict = Depends(can_manage_users)
 ):
     """
     Actualizar un usuario (Company Admin y Super Admin)
+    CON VALIDACIONES DE SEGURIDAD COMPLETAS
     """
     try:
         db = get_db()
         
-        print(f"🔍 Debug update_user - User ID: {user_id}")
-        print(f"🔍 Debug update_user - Datos recibidos: {user_data}")
-        print(f"🔍 Debug update_user - Admin: {admin}")
+        print(f"🔍 [SECURITY] Update user iniciado por: {admin.get('email')}")
+        print(f"🔍 [SECURITY] User ID: {user_id}")
         
         # Obtener usuario actual
         current_user_result = db.table("users").select("*").eq("id", user_id).execute()
@@ -215,57 +241,74 @@ async def update_user(
             raise HTTPException(status_code=404, detail="User not found")
         
         current_user = current_user_result.data[0]
-        print(f"🔍 Debug update_user - Usuario actual: {current_user}")
         
-        # Verificar permisos
+        # 🔐 VALIDACIÓN DE SEGURIDAD 1: Company admin solo puede modificar usuarios de su empresa
         if admin.get("role") == "company_admin":
-            # Company admin solo puede modificar usuarios de su empresa
             if current_user.get("company_id") != admin["company_id"]:
-                raise HTTPException(status_code=403, detail="Cannot modify user from other company")
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Cannot modify user from other company"
+                )
             
-            # Company admin no puede modificar roles a super_admin
+            # 🔐 VALIDACIÓN DE SEGURIDAD 2: Company admin no puede modificar roles a super_admin
             if user_data.role and user_data.role == UserRole.SUPER_ADMIN:
-                raise HTTPException(status_code=403, detail="Cannot assign super_admin role")
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Cannot assign super_admin role"
+                )
             
-            # Company admin no puede modificar company_id
+            # 🔐 VALIDACIÓN DE SEGURIDAD 3: Company admin no puede modificar company_id
             if user_data.company_id and user_data.company_id != admin["company_id"]:
-                raise HTTPException(status_code=403, detail="Cannot change user company")
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Cannot change user company"
+                )
+        
+        # 🔐 VALIDACIÓN DE SEGURIDAD 4: Nadie puede desactivarse a sí mismo
+        if (user_data.status and user_data.status == UserStatus.INACTIVE and 
+            user_id == admin["user_id"]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot deactivate your own account"
+            )
         
         update_data = user_data.dict(exclude_unset=True, exclude_none=True)
         update_data["updated_at"] = datetime.now().isoformat()
         
-        print(f"🔍 Debug update_user - Datos a actualizar: {update_data}")
+        print(f"🔍 [SECURITY] Datos a actualizar: {update_data}")
         
         result = db.table("users").update(update_data).eq("id", user_id).execute()
         
-        print(f"🔍 Debug update_user - Resultado: {result.data}")
-        print(f"🔍 Debug update_user - Error: {result.error}")
-        
         if result.data:
+            print(f"✅ [SECURITY] Usuario actualizado exitosamente: {user_id}")
             return UserResponse(**result.data[0])
         else:
-            error_msg = result.error.message if hasattr(result.error, 'message') else str(result.error)
+            # Manejo profesional de errores
+            error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown error"
             raise HTTPException(status_code=400, detail=f"Error updating user: {error_msg}")
             
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en update_user: {e}")
+        print(f"❌ [SECURITY] Error crítico en update_user: {e}")
         import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error during user update")
 
 @router.delete("/{user_id}")
 async def delete_user(
-    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    request: Request,
     user_id: str,
-    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+    admin: dict = Depends(can_manage_users)
 ):
     """
     Eliminar un usuario (Company Admin y Super Admin)
+    CON VALIDACIONES DE SEGURIDAD AVANZADAS
     """
     try:
         db = get_db()
+        
+        print(f"🔍 [SECURITY] Delete user iniciado por: {admin.get('email')}")
         
         # Obtener usuario
         user_result = db.table("users").select("*").eq("id", user_id).execute()
@@ -274,31 +317,50 @@ async def delete_user(
         
         user = user_result.data[0]
         
-        # Verificar permisos
+        # 🔐 VALIDACIÓN DE SEGURIDAD 1: Company admin solo puede eliminar usuarios de su empresa
         if admin.get("role") == "company_admin":
             if user.get("company_id") != admin["company_id"]:
-                raise HTTPException(status_code=403, detail="Cannot delete user from other company")
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Cannot delete user from other company"
+                )
             
-            # Company admin no puede eliminarse a sí mismo
+            # 🔐 VALIDACIÓN DE SEGURIDAD 2: Company admin no puede eliminarse a sí mismo
             if user_id == admin["user_id"]:
-                raise HTTPException(status_code=400, detail="Cannot delete your own account")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot delete your own account"
+                )
         
-        # Super admin no puede eliminarse a sí mismo
+        # 🔐 VALIDACIÓN DE SEGURIDAD 3: Super admin no puede eliminarse a sí mismo
         if admin.get("role") == "super_admin" and user_id == admin["user_id"]:
-            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete your own account"
+            )
+        
+        # 🔐 VALIDACIÓN DE SEGURIDAD 4: Company admin no puede eliminar super_admins
+        if (admin.get("role") == "company_admin" and 
+            user.get("role") == "super_admin"):
+            raise HTTPException(
+                status_code=403, 
+                detail="Cannot delete super admin users"
+            )
         
         result = db.table("users").delete().eq("id", user_id).execute()
         
         if result.data is not None:
+            print(f"✅ [SECURITY] Usuario eliminado exitosamente: {user_id}")
             return {"message": "User deleted successfully"}
         else:
-            error_msg = result.error.message if hasattr(result.error, 'message') else str(result.error)
+            # Manejo profesional de errores
+            error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown error"
             raise HTTPException(status_code=400, detail=f"Error deleting user: {error_msg}")
             
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en delete_user: {e}")
+        print(f"❌ [SECURITY] Error crítico en delete_user: {e}")
         import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error during user deletion")
