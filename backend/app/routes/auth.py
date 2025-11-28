@@ -4,11 +4,11 @@ from app.models.user import UserCreate, UserLogin, UserResponse, UserRole, UserS
 from app.models.database import get_db
 from app.auth.jwt_handler import (
     create_access_token, 
-    verify_token, 
+    # verify_token,  # ← ELIMINAR ESTA LÍNEA
     get_current_user,
     get_current_active_user,
-    require_super_admin,  # ✅ Solo require_super_admin
-    require_company_admin  # ✅ require_company_admin
+    require_super_admin,
+    require_company_admin
 )
 import uuid
 from datetime import datetime, timedelta
@@ -27,7 +27,7 @@ def hash_password(password: str) -> str:
         'sha256',
         password.encode('utf-8'),
         salt.encode('utf-8'),
-        100000  # 100,000 iteraciones para mayor seguridad
+        100000
     ).hex()
     return f"{hashed_password}:{salt}"
 
@@ -56,7 +56,6 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
         db = get_db()
         
         # ✅ BLOQUEAR REGISTRO ABIERTO - Solo permitir usuarios invitados
-        # Verificar si el usuario fue previamente invitado
         invited_user = db.table("user_invitations").select("*").eq("email", user_data.email).eq("status", "pending").execute()
         
         if not invited_user.data:
@@ -70,7 +69,6 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
         # Verificar si la invitación ha expirado
         expires_at = datetime.fromisoformat(invitation["expires_at"].replace('Z', '+00:00'))
         if datetime.now() > expires_at:
-            # Marcar como expirada
             db.table("user_invitations").update({
                 "status": "expired"
             }).eq("id", invitation["id"]).execute()
@@ -100,7 +98,7 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
             "email": user_data.email,
             "name": user_data.name,
             "company_id": invitation["company_id"],
-            "role": invitation["role"],  # Usar el rol de la invitación
+            "role": invitation["role"],
             "status": "active",
             "hashed_password": hash_password(user_data.password),
             "created_at": datetime.now().isoformat(),
@@ -150,7 +148,6 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
 
-
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
     print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (RPC COMPLETO) ===")
@@ -162,8 +159,8 @@ async def login(login_data: UserLogin, request: Request):
         result = db.rpc(
             'authenticate_user', 
             {
-                'p_email': login_data.email,  # ← login_data.email
-                'p_password': login_data.password  # ← login_data.password
+                'p_email': login_data.email,
+                'p_password': login_data.password
             }
         ).execute()
         
@@ -217,7 +214,7 @@ async def login(login_data: UserLogin, request: Request):
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 @router.post("/refresh", response_model=dict)
-async def refresh_token(current_user: dict = Depends(get_current_user)):
+async def refresh_token(request: Request, current_user: dict = Depends(get_current_user)):
     """
     Refresh token endpoint - crea un nuevo token con los mismos datos
     """
@@ -245,14 +242,11 @@ async def refresh_token(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Token refresh error: {str(e)}")
 
 @router.post("/logout", response_model=dict)
-async def logout(current_user: dict = Depends(get_current_user)):
+async def logout(request: Request, current_user: dict = Depends(get_current_user)):
     """
     Logout - podría invalidar tokens en una implementación más avanzada
     """
     try:
-        # En una implementación real, podrías agregar el token a una blacklist
-        # Por ahora, el cliente simplemente descarta el token
-        
         return {"message": "Logout successful"}
         
     except Exception as e:
@@ -260,6 +254,7 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
 @router.post("/change-password", response_model=dict)
 async def change_password(
+    request: Request,
     current_password: str,
     new_password: str,
     current_user: dict = Depends(get_current_active_user)
@@ -308,7 +303,7 @@ async def change_password(
         raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}")
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_profile(current_user: dict = Depends(get_current_active_user)):
+async def get_current_user_profile(request: Request, current_user: dict = Depends(get_current_active_user)):
     """
     Obtener perfil del usuario actual
     """
@@ -328,17 +323,15 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_acti
 
 # Rutas protegidas por roles - ACTUALIZADAS
 @router.get("/super-admin-only")
-async def super_admin_only_route(admin_user: dict = Depends(require_super_admin)):  # ✅ CORREGIDO nombre
+async def super_admin_only_route(request: Request, admin_user: dict = Depends(require_super_admin)):
     """
     Ruta solo accesible para super administradores
     """
     return {"message": "Welcome super admin!", "user": admin_user}
 
 @router.get("/company-admin-dashboard")
-async def company_admin_dashboard(manager_user: dict = Depends(require_company_admin)):  # ✅ CORREGIDO nombre
+async def company_admin_dashboard(request: Request, manager_user: dict = Depends(require_company_admin)):
     """
     Ruta para company admins y super admins
     """
     return {"message": "Company admin dashboard", "user": manager_user}
-
-
