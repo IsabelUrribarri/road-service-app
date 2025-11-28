@@ -1,5 +1,5 @@
 # backend/app/routes/invitations.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request  # ← AGREGAR Request
 from typing import List
 from ..models.invitation import UserInvitationCreate, UserInvitationResponse, InvitationStatus
 from ..models.database import get_db
@@ -12,8 +12,9 @@ router = APIRouter(prefix="/invitations", tags=["invitations"])
 
 @router.post("/", response_model=UserInvitationResponse)
 async def create_invitation(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     invitation_data: UserInvitationCreate,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Crear una invitación para un nuevo usuario (Company Admin y Super Admin)
@@ -54,14 +55,13 @@ async def create_invitation(
             "invited_by": admin["user_id"],
             "status": "pending",
             "created_at": datetime.now().isoformat(),
-            "expires_at": (datetime.now() + timedelta(days=7)).isoformat(),  # 7 días para aceptar
-            "token": secrets.token_urlsafe(32)  # Token único para la invitación
+            "expires_at": (datetime.now() + timedelta(days=7)).isoformat(),
+            "token": secrets.token_urlsafe(32)
         }
         
         result = db.table("user_invitations").insert(invitation).execute()
         
         if result.data:
-            # En producción: enviar email con enlace de invitación
             return UserInvitationResponse(**result.data[0])
         else:
             raise HTTPException(status_code=400, detail="Error creating invitation")
@@ -71,9 +71,10 @@ async def create_invitation(
 
 @router.get("/", response_model=List[UserInvitationResponse])
 async def get_invitations(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     skip: int = 0,
     limit: int = 100,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Obtener todas las invitaciones (Company Admin y Super Admin)
@@ -94,8 +95,9 @@ async def get_invitations(
 
 @router.delete("/{invitation_id}")
 async def cancel_invitation(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     invitation_id: str,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Cancelar una invitación (Company Admin y Super Admin)

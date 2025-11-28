@@ -1,4 +1,4 @@
-# En la sección de imports:
+# backend/main.py
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,8 +7,7 @@ from app.routes.invitations import router as invitations_router
 from app.routes.admin import router as admin_router
 from app.routes.users import router as users_router
 from typing import Dict, List
-from app.auth.jwt_handler import verify_token
-from fastapi import Request, HTTPException
+from app.auth.jwt_handler import verify_token_simple  # ← FUNCIÓN OPTIMIZADA
 from app.routes.setup import router as setup_router
 from app.routes import (
     auth_router, 
@@ -19,7 +18,6 @@ from app.routes import (
     metrics_router
 )
 import json
-import time
 import os
 
 app = FastAPI(
@@ -29,17 +27,13 @@ app = FastAPI(
 )
 
 # CONFIGURACIÓN CORS PROFESIONAL - PRODUCCIÓN
-# ===============================================
-# ⚠️ ACTUALIZA ESTOS DOMINIOS CUANDO TENGAS TU DOMINIO EN VERCEL
 CORS_ORIGINS = [
     "http://localhost:5173", 
     "http://localhost:3000",
     "http://127.0.0.1:5173", 
     "http://127.0.0.1:3000",
-    # ↓↓↓ AGREGA TU DOMINIO DE VERCEL AQUÍ ↓↓↓
     "https://road-service-app.vercel.app",
     "https://*.vercel.app", 
-    # ↑↑↑ ACTUALIZA CON TU DOMINIO REAL ↑↑↑
 ]
 
 # También aceptar desde variable de entorno
@@ -55,9 +49,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ELIMINADO: Middleware de debug (no para producción)
-# ELIMINADO: Endpoints de debug (/debug-login, /direct-login)
-
 # Manager de conexiones WebSocket
 class ConnectionManager:
     def __init__(self):
@@ -68,14 +59,12 @@ class ConnectionManager:
         if company_id not in self.active_connections:
             self.active_connections[company_id] = []
         self.active_connections[company_id].append(websocket)
-        print(f"Cliente conectado. Compañía: {company_id}, Total: {len(self.active_connections[company_id])}")
 
     def disconnect(self, websocket: WebSocket, company_id: str):
         if company_id in self.active_connections:
             self.active_connections[company_id].remove(websocket)
             if not self.active_connections[company_id]:
                 del self.active_connections[company_id]
-        print(f"Cliente desconectado. Compañía: {company_id}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
@@ -86,8 +75,7 @@ class ConnectionManager:
             for connection in self.active_connections[company_id]:
                 try:
                     await connection.send_json(message)
-                except Exception as e:
-                    print(f"Error enviando mensaje: {e}")
+                except Exception:
                     disconnected.append(connection)
             
             for connection in disconnected:
@@ -95,7 +83,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# WebSocket endpoint con timeout para producción
+# WebSocket endpoint
 @app.websocket("/ws/{company_id}")
 async def websocket_endpoint(websocket: WebSocket, company_id: str):
     await manager.connect(websocket, company_id)
@@ -111,6 +99,42 @@ async def websocket_endpoint(websocket: WebSocket, company_id: str):
     except WebSocketDisconnect:
         manager.disconnect(websocket, company_id)
 
+# MIDDLEWARE DE AUTENTICACIÓN PROFESIONAL
+@app.middleware("http")
+async def authenticate_request(request: Request, call_next):
+    # Lista de rutas públicas que no requieren autenticación
+    public_routes = [
+        "/", "/health", "/docs", "/openapi.json",
+        "/auth/login", "/auth/register", "/auth/refresh",
+        "/admin/initialize-default-user", "/setup/initialize-system"
+    ]
+    
+    # No autenticar rutas públicas Y requests OPTIONS
+    if request.url.path in public_routes or request.method == "OPTIONS":
+        return await call_next(request)
+    
+    # Verificar token para rutas protegidas
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401, 
+            content={"detail": "Token missing or invalid"}
+        )
+    
+    token = auth_header.replace("Bearer ", "")
+    
+    # 🔐 VERIFICACIÓN OPTIMIZADA
+    user_data = verify_token_simple(token)
+    if not user_data:
+        return JSONResponse(
+            status_code=401, 
+            content={"detail": "Token verification failed"}
+        )
+    
+    # Agregar user_data al request state para uso en endpoints
+    request.state.user = user_data
+    return await call_next(request)
+
 # Incluir routers
 app.include_router(auth_router)
 app.include_router(vehicles_router)
@@ -123,6 +147,7 @@ app.include_router(invitations_router)
 app.include_router(setup_router)
 app.include_router(users_router)
 
+# Endpoints básicos
 @app.get("/")
 async def root():
     return {
@@ -157,74 +182,6 @@ async def initialize_default_user_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-@app.middleware("http")
-async def authenticate_request(request: Request, call_next):
-    print(f"🔐 [MIDDLEWARE] Ruta: {request.url.path}, Método: {request.method}")
-    
-    # Lista de rutas públicas que no requieren autenticación
-    public_routes = [
-        "/", 
-        "/health", 
-        "/docs", 
-        "/openapi.json",
-        "/auth/login",
-        "/auth/register",
-        "/auth/refresh",
-        "/admin/initialize-default-user", 
-        "/setup/initialize-system"
-    ]
-    
-    # No autenticar rutas públicas Y requests OPTIONS
-    if request.url.path in public_routes or request.method == "OPTIONS":
-        print(f"✅ [MIDDLEWARE] Ruta pública o OPTIONS, skipping auth")
-        return await call_next(request)
-    
-    # Verificar token para rutas protegidas
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        print("❌ [MIDDLEWARE] No Authorization header or invalid format")
-        return JSONResponse(
-            status_code=401, 
-            content={"detail": "Token missing or invalid"}
-        )
-    
-    token = auth_header.replace("Bearer ", "")
-    print(f"🔐 [MIDDLEWARE] Token recibido: {token[:50]}...")
-    
-    try:
-        # 🔐 VERIFICACIÓN SIMPLE DEL TOKEN SIN DEPENDENCIAS
-        import jwt
-        SECRET_KEY = os.getenv("SECRET_KEY")
-        
-        if not SECRET_KEY:
-            print("❌ [MIDDLEWARE] SECRET_KEY no configurada")
-            return JSONResponse(status_code=500, content={"detail": "Server configuration error"})
-            
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        print(f"✅ [MIDDLEWARE] Token válido para: {payload.get('sub')}")
-        
-        # Agregar user_data al request state
-        request.state.user = {
-            "email": payload.get("sub"),
-            "user_id": payload.get("user_id"),
-            "company_id": payload.get("company_id"), 
-            "name": payload.get("name"),
-            "role": payload.get("role")
-        }
-        
-        return await call_next(request)
-        
-    except jwt.ExpiredSignatureError:
-        print("❌ [MIDDLEWARE] Token expirado")
-        return JSONResponse(status_code=401, content={"detail": "Token expired"})
-    except jwt.InvalidTokenError as e:
-        print(f"❌ [MIDDLEWARE] Token inválido: {e}")
-        return JSONResponse(status_code=401, content={"detail": "Invalid token"})
-    except Exception as e:
-        print(f"❌ [MIDDLEWARE] Error verificando token: {e}")
-        return JSONResponse(status_code=401, content={"detail": f"Token verification failed: {str(e)}"})
-
-
 # Middleware CORS adicional para producción
 @app.middleware("http")
 async def force_cors_headers(request: Request, call_next):
@@ -240,4 +197,4 @@ async def force_cors_headers(request: Request, call_next):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)  # reload=False en producción
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)

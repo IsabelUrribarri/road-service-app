@@ -1,11 +1,10 @@
+# app/auth/jwt_handler.py
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException, status, Request
 import os
 from dotenv import load_dotenv
-from ..models.database import get_db
 
 load_dotenv()
 
@@ -15,8 +14,6 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
-
-security = HTTPBearer()
 
 # Definir roles del sistema
 ROLES = ["super_admin", "company_admin", "worker"]
@@ -39,8 +36,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         
         to_encode.update({
             "exp": expire,
-            "iat": datetime.utcnow(),  # Issued at
-            "iss": "road-service-api"  # Issuer
+            "iat": datetime.utcnow(),
+            "iss": "road-service-api"
         })
         
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -52,92 +49,41 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
             detail=f"Error creating token: {str(e)}"
         )
 
-async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def verify_token_simple(token: str) -> Optional[dict]:
     """
-    Verifica y decodifica el JWT token, y valida el usuario en la base de datos
+    Verificación simple del token para middleware
+    SIN dependencias de FastAPI - OPTIMIZADA PARA PERFORMANCE
     """
     try:
-        token = credentials.credentials
-        
-        # Decodificar el token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         
         # Validar campos requeridos
         if "sub" not in payload:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing subject"
-            )
-        
-        # Buscar usuario en la base de datos
-        db = get_db()
-        user_result = db.table("users").select("*").eq("email", payload["sub"]).execute()
-        
-        if not user_result.data:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found"
-            )
-        
-        user = user_result.data[0]
-        
-        # Validar que el usuario esté activo
-        if user.get("status") == "inactive":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account is inactive"
-            )
-        
-        # Validar que el company_id del token coincida con el de la base de datos
-        token_company_id = payload.get("company_id")
-        db_company_id = user.get("company_id")
-        
-        if token_company_id != db_company_id:
-            # Log de seguridad - posible token comprometido
-            print(f"Security warning: Token company_id mismatch for user {user['email']}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token validation failed"
-            )
+            return None
+            
+        # Validar expiración
+        if "exp" in payload:
+            expiration = datetime.fromtimestamp(payload["exp"])
+            if datetime.utcnow() > expiration:
+                return None
         
         return {
-            "email": user["email"],
-            "user_id": user["id"],
-            "company_id": user.get("company_id"),
-            "name": user.get("name", ""),
-            "role": user.get("role", "worker")  # Default a worker si no existe
+            "email": payload.get("sub"),
+            "user_id": payload.get("user_id"),
+            "company_id": payload.get("company_id"),
+            "name": payload.get("name"),
+            "role": payload.get("role", "worker")
         }
         
     except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired"
-        )
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Token verification error: {str(e)}"
-        )
-
-async def get_current_user(user: dict = Depends(verify_token)):
-    """
-    Dependency para obtener el usuario actual
-    """
-    return user
-
-async def get_current_active_user(current_user: dict = Depends(get_current_user)):
-    """
-    Dependency para validar que el usuario esté activo
-    """
-    return current_user
+        return None
+    except jwt.InvalidTokenError:
+        return None
+    except Exception:
+        return None
 
 # =============================================================================
-# FUNCIONES DE AUTORIZACIÓN POR ROLES
+# FUNCIONES DE AUTORIZACIÓN POR ROLES - OPTIMIZADAS
 # =============================================================================
 
 def has_role(user: dict, required_role: str) -> bool:
@@ -151,65 +97,75 @@ def has_role(user: dict, required_role: str) -> bool:
     
     return user_level >= required_level
 
-async def require_role(required_role: str):
-    """
-    Dependency factory para requerir un rol específico
-    """
-    async def role_dependency(user: dict = Depends(get_current_user)):
-        if not has_role(user, required_role):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions. Required role: {required_role}"
-            )
-        return user
-    return role_dependency
+# =============================================================================
+# DEPENDENCIAS PARA ENDPOINTS (usando request.state)
+# =============================================================================
 
-# CORRIGE las funciones al final del archivo:
-
-# Dependencies específicos para cada rol
-async def require_super_admin(user: dict = Depends(get_current_user)):
-    """Solo para Super Admin"""
-    print(f"🔍 [AUTH DEBUG] require_super_admin - Usuario: {user}")
-    
-    if not has_role(user, "super_admin"):
-        print(f"❌ [AUTH DEBUG] Acceso denegado - Rol: {user.get('role')}")
+def get_current_user(request: Request):
+    """
+    Obtiene usuario actual del request state (ya verificado por middleware)
+    """
+    user = getattr(request.state, 'user', None)
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires super admin privileges"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
         )
-    
-    print("✅ [AUTH DEBUG] Acceso permitido para super_admin")
     return user
 
-async def require_company_admin(user: dict = Depends(get_current_user)):
-    """Para Company Admin y Super Admin"""
-    if has_role(user, "company_admin"):
-        return user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Company admin or higher role required"
-    )
+def get_current_active_user(request: Request):
+    """
+    Dependency para validar que el usuario esté activo
+    """
+    return get_current_user(request)  # El middleware ya valida el usuario
 
-async def require_worker(user: dict = Depends(get_current_user)):
-    """Para cualquier usuario autenticado (todos los roles)"""
-    return user  # Todos los roles tienen al menos permisos de worker
+def require_super_admin(request: Request):
+    """
+    Requiere rol de super_admin
+    """
+    user = get_current_user(request)
+    if not has_role(user, "super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required"
+        )
+    return user
 
-# Dependencies para acciones específicas
-async def can_manage_users(user: dict = Depends(get_current_user)):
+def require_company_admin(request: Request):
+    """
+    Requiere rol de company_admin o super_admin
+    """
+    user = get_current_user(request)
+    if not has_role(user, "company_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Company admin or higher role required"
+        )
+    return user
+
+def require_worker(request: Request):
+    """
+    Para cualquier usuario autenticado (todos los roles)
+    """
+    return get_current_user(request)
+
+def can_manage_users(request: Request):
     """
     Dependency para gestionar usuarios (solo company_admin y super_admin)
     """
-    if has_role(user, "company_admin"):
-        return user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Insufficient permissions to manage users"
-    )
+    user = get_current_user(request)
+    if not has_role(user, "company_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to manage users"
+        )
+    return user
 
-async def can_manage_companies(user: dict = Depends(get_current_user)):
+def can_manage_companies(request: Request):
     """
     Dependency para gestionar empresas (solo super_admin)
     """
+    user = get_current_user(request)
     if not has_role(user, "super_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -1,5 +1,5 @@
 # backend/app/routes/companies.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request  # ← AGREGAR Request
 from typing import List
 from ..models.company import CompanyResponse, CompanyStats
 from ..models.user import UserResponse
@@ -10,11 +10,14 @@ from datetime import datetime
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 # =============================================================================
-# RUTAS DE INFORMACIÓN DE EMPRESA (Todos los usuarios autenticados)
+# RUTAS ACTUALIZADAS - ARQUITECTURA PROFESIONAL
 # =============================================================================
 
 @router.get("/my-company", response_model=CompanyResponse)
-async def get_my_company(user: dict = Depends(get_current_user)):
+async def get_my_company(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    user: dict = Depends(get_current_user)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+):
     """
     Obtener información de la empresa del usuario actual
     """
@@ -31,7 +34,10 @@ async def get_my_company(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/my-company/users", response_model=List[UserResponse])
-async def get_my_company_users(user: dict = Depends(get_current_user)):
+async def get_my_company_users(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    user: dict = Depends(get_current_user)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+):
     """
     Obtener todos los usuarios de la empresa actual
     """
@@ -45,7 +51,10 @@ async def get_my_company_users(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/my-company/stats")
-async def get_my_company_stats(admin: dict = Depends(require_company_admin)):
+async def get_my_company_stats(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
+    admin: dict = Depends(require_company_admin)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
+):
     """
     Obtener estadísticas de la empresa actual (Solo Company Admin y Super Admin)
     """

@@ -1,5 +1,5 @@
 # backend/app/routes/users.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request  # ← AGREGAR Request
 from typing import List, Optional
 from ..models.user import UserResponse, UserUpdate, UserRole, UserStatus, UserInvite
 from ..models.database import get_db
@@ -39,14 +39,15 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 # =============================================================================
-# RUTAS CORREGIDAS - TODAS USAN .execute() CONSISTENTEMENTE
+# RUTAS ACTUALIZADAS - ARQUITECTURA PROFESIONAL
 # =============================================================================
 
 @router.get("/", response_model=List[UserResponse])
 async def get_company_users(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     skip: int = 0,
     limit: int = 100,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Obtener todos los usuarios de la empresa (Company Admin y Super Admin)
@@ -75,8 +76,9 @@ async def get_company_users(
 
 @router.post("/invite", response_model=dict)
 async def invite_user(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     user_data: UserInvite,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Invitar un nuevo usuario a la empresa (Company Admin y Super Admin)
@@ -109,7 +111,6 @@ async def invite_user(
                     "created_at": datetime.now().isoformat(),
                     "updated_at": datetime.now().isoformat()
                 }
-                # ✅ CORREGIDO: Usar .execute() para INSERT también
                 company_result = db.table("companies").insert(default_company).execute()
                 print(f"🔍 Debug - Compañía creada: {company_result.data}")
             else:
@@ -139,7 +140,6 @@ async def invite_user(
         }
         
         print(f"🔍 Debug - Creando usuario: {user}")
-        # ✅ CORREGIDO: Usar .execute() para INSERT
         result = db.table("users").insert(user).execute()
         print(f"🔍 Debug - Resultado creación usuario: {result.data}")
         print(f"🔍 Debug - Error creación usuario: {result.error}")
@@ -165,8 +165,9 @@ async def invite_user(
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     user_id: str,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Obtener un usuario específico (Company Admin y Super Admin)
@@ -193,9 +194,10 @@ async def get_user(
 
 @router.put("/{user_id}", response_model=UserResponse)
 async def update_user(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     user_id: str,
     user_data: UserUpdate,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Actualizar un usuario (Company Admin y Super Admin)
@@ -234,7 +236,6 @@ async def update_user(
         
         print(f"🔍 Debug update_user - Datos a actualizar: {update_data}")
         
-        # ✅ CORREGIDO: Usar la sintaxis correcta de Supabase
         result = db.table("users").update(update_data).eq("id", user_id).execute()
         
         print(f"🔍 Debug update_user - Resultado: {result.data}")
@@ -256,8 +257,9 @@ async def update_user(
 
 @router.delete("/{user_id}")
 async def delete_user(
+    request: Request,  # ← AGREGAR ESTE PARÁMETRO
     user_id: str,
-    admin: dict = Depends(can_manage_users)
+    admin: dict = Depends(can_manage_users)  # ← FUNCIONARÁ CON LA NUEVA ARQUITECTURA
 ):
     """
     Eliminar un usuario (Company Admin y Super Admin)
@@ -285,7 +287,6 @@ async def delete_user(
         if admin.get("role") == "super_admin" and user_id == admin["user_id"]:
             raise HTTPException(status_code=400, detail="Cannot delete your own account")
         
-        # ✅ CORREGIDO: Sintaxis correcta para DELETE
         result = db.table("users").delete().eq("id", user_id).execute()
         
         if result.data is not None:
