@@ -65,6 +65,12 @@ class SupabaseClient:
         Alternativa para compatibilidad
         """
         return TableQuery(self, table)
+    def rpc(self, function_name: str, params: Dict[str, Any] = None) -> 'RPCQuery':
+        """
+        Ejecuta funciones de PostgreSQL (RPC)
+        """
+        return RPCQuery(self, function_name, params or {})
+    
 
 class TableQuery:
     def __init__(self, client: SupabaseClient, table: str):
@@ -165,12 +171,6 @@ class TableQuery:
         except Exception as e:
             error_msg = f"Request failed: {str(e)}"
             return type('obj', (object,), {'data': None, 'error': error_msg})()
-
-def rpc(self, function_name: str, params: Dict[str, Any] = None) -> 'RPCQuery':
-    """
-    Ejecuta funciones de PostgreSQL (RPC)
-    """
-    return RPCQuery(self, function_name, params or {})
 
 class RPCQuery:
     def __init__(self, client: SupabaseClient, function_name: str, params: Dict[str, Any]):
