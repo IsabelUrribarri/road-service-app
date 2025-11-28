@@ -381,3 +381,26 @@ async def delete_user(
         import traceback
         print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal server error during user deletion")
+
+@router.get("/debug-rls")
+async def debug_rls_policies(request: Request, admin: dict = Depends(require_super_admin)):
+    """
+    Endpoint temporal para debuggear políticas RLS
+    """
+    try:
+        db = get_db()
+        
+        # Ejecutar función de debug en Supabase
+        result = db.rpc('debug_rls_policies', {}).execute()
+        
+        print(f"🔍 [RLS DEBUG] Resultado del diagnóstico: {result.data}")
+        
+        return {
+            "debug_info": result.data,
+            "jwt_claims": admin,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ [RLS DEBUG] Error en diagnóstico: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
