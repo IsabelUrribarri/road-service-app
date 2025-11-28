@@ -158,7 +158,7 @@ async def login(login_data: UserLogin, request: Request):
     try:
         db = get_db()
         
-        # 🔐 USAR FUNCIÓN RPC PARA OBTENER USUARIO
+        # 🔐 USAR FUNCIÓN RPC
         print(f"🔍 [DEBUG] Llamando función con: {login_data.email}")
         result = db.rpc(
             'authenticate_user', 
@@ -171,24 +171,31 @@ async def login(login_data: UserLogin, request: Request):
         print(f"🔍 [DEBUG] Resultado RPC completo: {result}")
         print(f"🔍 [DEBUG] Resultado data: {result.data}")
         print(f"🔍 [DEBUG] Resultado error: {result.error}")
+        
         if not result.data or len(result.data) == 0:
             print("❌ [DEBUG] USUARIO NO ENCONTRADO EN RPC")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user_data = result.data[0]
         print(f"✅ [DEBUG] USUARIO ENCONTRADO: {user_data}")
-        # 🔐 VERIFICAR PASSWORD EN PYTHON
-        user_full = db.table("users").select("*").eq("id", user_data["user_id"]).execute()
-        if not user_full.data:
+        
+        # 🔐 VERIFICAR PASSWORD - OBTENER SOLO EL HASH
+        print("🔍 [DEBUG] Obteniendo hash para verificación...")
+        hash_result = db.table("users").select("hashed_password").eq("id", user_data["user_id"]).execute()
+        
+        if not hash_result.data:
+            print("❌ [DEBUG] NO SE PUDO OBTENER HASH")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        user = user_full.data[0]
+        stored_hash = hash_result.data[0]["hashed_password"]
+        print(f"🔍 [DEBUG] Hash obtenido: {stored_hash[:20]}...")
         
-        if not verify_password(login_data.password, user.get("hashed_password", "")):
+        # Verificar password
+        if not verify_password(login_data.password, stored_hash):
             print("❌ [DEBUG] PASSWORD INVALID")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        print("✅ [DEBUG] LOGIN SUCCESS")
+        print("✅ [DEBUG] PASSWORD VÁLIDO - LOGIN EXITOSO")
         
         # Crear token
         token_data = {
@@ -203,7 +210,14 @@ async def login(login_data: UserLogin, request: Request):
         
         return {
             "message": "Login successful",
-            "user": UserResponse(**user),
+            "user": {
+                "id": user_data["user_id"],
+                "email": user_data["user_email"],
+                "name": user_data["user_name"],
+                "company_id": user_data["company_id"],
+                "role": user_data["user_role"],
+                "status": user_data["status"]
+            },
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": 24 * 60 * 60
@@ -214,6 +228,7 @@ async def login(login_data: UserLogin, request: Request):
     except Exception as e:
         print(f"💥 [DEBUG] ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+
 
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
