@@ -82,9 +82,26 @@ async def invite_user(
 ):
     """
     Invitar un nuevo usuario a la empresa (Company Admin y Super Admin)
-    CON VALIDACIONES DE SEGURIDAD AVANZADAS
     """
     try:
+        # 🔍 DIAGNÓSTICO PROFESIONAL - VERIFICAR JWT CLAIMS
+        print(f"🔍 [JWT DEBUG] Admin completo: {admin}")
+        print(f"🔍 [JWT DEBUG] Role en JWT: {admin.get('role')}")
+        print(f"🔍 [JWT DEBUG] Company ID en JWT: {admin.get('company_id')}")
+        print(f"🔍 [JWT DEBUG] User ID en JWT: {admin.get('user_id')}")
+        print(f"🔍 [JWT DEBUG] Email en JWT: {admin.get('email')}")
+        
+        # Verificar que los claims necesarios existen
+        required_claims = ['role', 'company_id', 'user_id', 'email']
+        missing_claims = [claim for claim in required_claims if not admin.get(claim)]
+        
+        if missing_claims:
+            print(f"🚨 [JWT DEBUG] Claims faltantes en JWT: {missing_claims}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"JWT missing required claims: {missing_claims}"
+            )
+        
         db = get_db()
         
         print(f"🔍 [SECURITY] Invitación iniciada por: {admin.get('email')}")

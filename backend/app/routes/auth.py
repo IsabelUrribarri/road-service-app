@@ -200,7 +200,6 @@ async def login(login_data: UserLogin, request: Request):
         print(f"🔍 [SECURITY] Resultado RPC para: {login_data.email}")
         
         if not result.data or len(result.data) == 0:
-            # 🔐 SEGURIDAD: No revelar si el usuario existe o no
             print(f"🚨 [SECURITY] Intento de login fallido para: {login_data.email}")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
@@ -227,14 +226,17 @@ async def login(login_data: UserLogin, request: Request):
         
         print(f"✅ [SECURITY] Login exitoso: {login_data.email}")
         
-        # Crear token seguro
+        # 🚀 CORRECCIÓN CRÍTICA: Crear token con TODOS los claims necesarios para RLS
         token_data = {
-            "sub": user_data["user_email"],
-            "user_id": user_data["user_id"],
+            "sub": user_data["user_email"],           # ✅ Requerido para RLS
+            "user_id": user_data["user_id"],          # ✅ Requerido para RLS (DELETE policies)
             "name": user_data["user_name"],
-            "company_id": user_data["company_id"],
-            "role": user_data["user_role"]
+            "company_id": user_data["company_id"],    # ✅ Requerido para RLS
+            "role": user_data["user_role"]            # ✅ Requerido para RLS
         }
+        
+        # 🔍 DEBUG: Verificar datos del token
+        print(f"🔍 [JWT CREATION] Token data: {token_data}")
         
         access_token = create_access_token(token_data)
         
@@ -258,6 +260,7 @@ async def login(login_data: UserLogin, request: Request):
     except Exception as e:
         print(f"💥 [SECURITY] Error crítico en login: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+
 
 @router.post("/refresh", response_model=dict)
 async def refresh_token(request: Request, current_user: dict = Depends(get_current_user)):

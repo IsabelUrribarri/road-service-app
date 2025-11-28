@@ -131,6 +131,9 @@ async def authenticate_request(request: Request, call_next):
             content={"detail": "Token verification failed"}
         )
     
+    # 🔍 DEBUG: Verificar datos decodificados del token
+    print(f"🔍 [MIDDLEWARE DEBUG] User data from token: {user_data}")
+    
     # Agregar user_data al request state para uso en endpoints
     request.state.user = user_data
     return await call_next(request)
