@@ -154,37 +154,49 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
     """
-    Login de usuario usando función de base de datos segura
+    Login de usuario - Función BD + verificación Python
     """
-    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (RPC) ===")
+    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT ===")
     
     try:
         db = get_db()
         
-        # 🔐 USAR FUNCIÓN RPC - MÁXIMA SEGURIDAD
+        # 🔐 USAR FUNCIÓN RPC PARA OBTENER USUARIO
         result = db.rpc(
             'authenticate_user', 
             {
-                'email': login_data.email,
-                'password': login_data.password
+                'user_email': login_data.email,
+                'user_password': login_data.password
             }
         ).execute()
         
         print(f"🔍 [DEBUG] Resultado RPC: {result.data}")
         
         if not result.data or len(result.data) == 0:
-            print("❌ [DEBUG] AUTENTICACIÓN FALLIDA")
+            print("❌ [DEBUG] USUARIO NO ENCONTRADO O INACTIVO")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user_data = result.data[0]
-        print(f"✅ [DEBUG] AUTENTICACIÓN EXITOSA: {user_data['user_email']}")
+        
+        # 🔐 VERIFICAR PASSWORD EN PYTHON
+        user_full = db.table("users").select("*").eq("id", user_data["user_id"]).execute()
+        if not user_full.data:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        user = user_full.data[0]
+        
+        if not verify_password(login_data.password, user.get("hashed_password", "")):
+            print("❌ [DEBUG] PASSWORD INVALID")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        print("✅ [DEBUG] LOGIN SUCCESS")
         
         # Crear token
         token_data = {
             "sub": user_data["user_email"],
-            "user_id": str(user_data["user_id"]),
+            "user_id": user_data["user_id"],
             "name": user_data["user_name"],
-            "company_id": str(user_data["company_id"]),
+            "company_id": user_data["company_id"],
             "role": user_data["user_role"]
         }
         
@@ -192,14 +204,7 @@ async def login(login_data: UserLogin, request: Request):
         
         return {
             "message": "Login successful",
-            "user": {
-                "id": user_data["user_id"],
-                "email": user_data["user_email"],
-                "name": user_data["user_name"],
-                "company_id": user_data["company_id"],
-                "role": user_data["user_role"],
-                "status": "active"
-            },
+            "user": UserResponse(**user),
             "access_token": access_token,
             "token_type": "bearer",
             "expires_in": 24 * 60 * 60
@@ -208,9 +213,8 @@ async def login(login_data: UserLogin, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"💥 [DEBUG] ERROR EN LOGIN (RPC): {str(e)}")
+        print(f"💥 [DEBUG] ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
-
 
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
