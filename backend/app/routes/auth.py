@@ -153,31 +153,30 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
 
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
-    """
-    Login de usuario - Función BD + verificación Python
-    """
     print("🎯 [DEBUG] === LOGIN ENDPOINT HIT ===")
     
     try:
         db = get_db()
         
         # 🔐 USAR FUNCIÓN RPC PARA OBTENER USUARIO
+        print(f"🔍 [DEBUG] Llamando función con: {login_data.email}")
         result = db.rpc(
             'authenticate_user', 
             {
-                'user_email': login_data.email,
-                'user_password': login_data.password
+                'p_email': login_data.email,
+                'p_password': login_data.password
             }
         ).execute()
         
-        print(f"🔍 [DEBUG] Resultado RPC: {result.data}")
-        
+        print(f"🔍 [DEBUG] Resultado RPC completo: {result}")
+        print(f"🔍 [DEBUG] Resultado data: {result.data}")
+        print(f"🔍 [DEBUG] Resultado error: {result.error}")
         if not result.data or len(result.data) == 0:
-            print("❌ [DEBUG] USUARIO NO ENCONTRADO O INACTIVO")
+            print("❌ [DEBUG] USUARIO NO ENCONTRADO EN RPC")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user_data = result.data[0]
-        
+        print(f"✅ [DEBUG] USUARIO ENCONTRADO: {user_data}")
         # 🔐 VERIFICAR PASSWORD EN PYTHON
         user_full = db.table("users").select("*").eq("id", user_data["user_id"]).execute()
         if not user_full.data:
