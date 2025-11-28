@@ -7,6 +7,8 @@ from app.routes.invitations import router as invitations_router
 from app.routes.admin import router as admin_router
 from app.routes.users import router as users_router
 from typing import Dict, List
+from app.auth.jwt_handler import verify_token
+from fastapi import Request, HTTPException
 from app.routes.setup import router as setup_router
 from app.routes import (
     auth_router, 
@@ -35,8 +37,8 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173", 
     "http://127.0.0.1:3000",
     # ↓↓↓ AGREGA TU DOMINIO DE VERCEL AQUÍ ↓↓↓
-    "https://TU_DOMINIO_VERCEL_AQUI.vercel.app",
-    "https://road-service-app.vercel.app",  # Ejemplo
+    "https://road-service-app.vercel.app",
+    "https://*.vercel.app", 
     # ↑↑↑ ACTUALIZA CON TU DOMINIO REAL ↑↑↑
 ]
 
@@ -154,6 +156,74 @@ async def initialize_default_user_endpoint():
         return {"message": "Usuario por defecto inicializado correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.middleware("http")
+async def authenticate_request(request: Request, call_next):
+    print(f"🔐 [MIDDLEWARE] Ruta: {request.url.path}, Método: {request.method}")
+    
+    # Lista de rutas públicas que no requieren autenticación
+    public_routes = [
+        "/", 
+        "/health", 
+        "/docs", 
+        "/openapi.json",
+        "/auth/login",
+        "/auth/register",
+        "/auth/refresh",
+        "/admin/initialize-default-user", 
+        "/setup/initialize-system"
+    ]
+    
+    # No autenticar rutas públicas Y requests OPTIONS
+    if request.url.path in public_routes or request.method == "OPTIONS":
+        print(f"✅ [MIDDLEWARE] Ruta pública o OPTIONS, skipping auth")
+        return await call_next(request)
+    
+    # Verificar token para rutas protegidas
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        print("❌ [MIDDLEWARE] No Authorization header or invalid format")
+        return JSONResponse(
+            status_code=401, 
+            content={"detail": "Token missing or invalid"}
+        )
+    
+    token = auth_header.replace("Bearer ", "")
+    print(f"🔐 [MIDDLEWARE] Token recibido: {token[:50]}...")
+    
+    try:
+        # 🔐 VERIFICACIÓN SIMPLE DEL TOKEN SIN DEPENDENCIAS
+        import jwt
+        SECRET_KEY = os.getenv("SECRET_KEY")
+        
+        if not SECRET_KEY:
+            print("❌ [MIDDLEWARE] SECRET_KEY no configurada")
+            return JSONResponse(status_code=500, content={"detail": "Server configuration error"})
+            
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        print(f"✅ [MIDDLEWARE] Token válido para: {payload.get('sub')}")
+        
+        # Agregar user_data al request state
+        request.state.user = {
+            "email": payload.get("sub"),
+            "user_id": payload.get("user_id"),
+            "company_id": payload.get("company_id"), 
+            "name": payload.get("name"),
+            "role": payload.get("role")
+        }
+        
+        return await call_next(request)
+        
+    except jwt.ExpiredSignatureError:
+        print("❌ [MIDDLEWARE] Token expirado")
+        return JSONResponse(status_code=401, content={"detail": "Token expired"})
+    except jwt.InvalidTokenError as e:
+        print(f"❌ [MIDDLEWARE] Token inválido: {e}")
+        return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+    except Exception as e:
+        print(f"❌ [MIDDLEWARE] Error verificando token: {e}")
+        return JSONResponse(status_code=401, content={"detail": f"Token verification failed: {str(e)}"})
+
 
 # Middleware CORS adicional para producción
 @app.middleware("http")
