@@ -153,49 +153,36 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks, req
 
 @router.post("/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
-    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT ===")
+    print("🎯 [DEBUG] === LOGIN ENDPOINT HIT (RPC COMPLETO) ===")
     
     try:
         db = get_db()
         
-        # 🔐 USAR FUNCIÓN RPC
-        print(f"🔍 [DEBUG] Llamando función con: {login_data.email}")
+        # 🔐 USAR FUNCIÓN RPC COMPLETA
         result = db.rpc(
             'authenticate_user', 
             {
-                'p_email': login_data.email,
-                'p_password': login_data.password
+                'p_email': login_data.email,  # ← login_data.email
+                'p_password': login_data.password  # ← login_data.password
             }
         ).execute()
         
-        print(f"🔍 [DEBUG] Resultado RPC completo: {result}")
-        print(f"🔍 [DEBUG] Resultado data: {result.data}")
-        print(f"🔍 [DEBUG] Resultado error: {result.error}")
+        print(f"🔍 [DEBUG] Resultado RPC: {result.data}")
         
         if not result.data or len(result.data) == 0:
-            print("❌ [DEBUG] USUARIO NO ENCONTRADO EN RPC")
+            print("❌ [DEBUG] USUARIO NO ENCONTRADO")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         user_data = result.data[0]
         print(f"✅ [DEBUG] USUARIO ENCONTRADO: {user_data}")
         
-        # 🔐 VERIFICAR PASSWORD - OBTENER SOLO EL HASH
-        print("🔍 [DEBUG] Obteniendo hash para verificación...")
-        hash_result = db.table("users").select("hashed_password").eq("id", user_data["user_id"]).execute()
-        
-        if not hash_result.data:
-            print("❌ [DEBUG] NO SE PUDO OBTENER HASH")
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        stored_hash = hash_result.data[0]["hashed_password"]
-        print(f"🔍 [DEBUG] Hash obtenido: {stored_hash[:20]}...")
-        
-        # Verificar password
+        # 🔐 VERIFICAR PASSWORD CON HASH DE LA RESPUESTA RPC
+        stored_hash = user_data["hashed_password"]
         if not verify_password(login_data.password, stored_hash):
             print("❌ [DEBUG] PASSWORD INVALID")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        print("✅ [DEBUG] PASSWORD VÁLIDO - LOGIN EXITOSO")
+        print("✅ [DEBUG] LOGIN EXITOSO")
         
         # Crear token
         token_data = {
@@ -228,7 +215,6 @@ async def login(login_data: UserLogin, request: Request):
     except Exception as e:
         print(f"💥 [DEBUG] ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
-
 
 @router.post("/refresh", response_model=dict)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
