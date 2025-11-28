@@ -9,6 +9,7 @@ from datetime import datetime
 import secrets
 import hashlib
 
+
 router = APIRouter(prefix="/users", tags=["users"])
 
 def hash_password(password: str) -> str:
@@ -383,12 +384,16 @@ async def delete_user(
         raise HTTPException(status_code=500, detail="Internal server error during user deletion")
 
 @router.get("/debug-rls")
-async def debug_rls_policies(request: Request, admin: dict = Depends(require_super_admin)):
+async def debug_rls_policies(request: Request, admin: dict = Depends(get_current_user)):  # ← Cambiar a get_current_user
     """
     Endpoint temporal para debuggear políticas RLS
     """
     try:
         db = get_db()
+        
+        # Solo super_admin puede usar este endpoint
+        if admin.get("role") != "super_admin":
+            raise HTTPException(status_code=403, detail="Super admin required")
         
         # Ejecutar función de debug en Supabase
         result = db.rpc('debug_rls_policies', {}).execute()
