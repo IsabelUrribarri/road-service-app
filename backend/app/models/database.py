@@ -4,6 +4,7 @@ import requests
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional, List
 import logging
+from fastapi import Request
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -13,7 +14,7 @@ load_dotenv()
 
 class SupabaseClient:
     """
-    Cliente simple y robusto para Supabase usando requests
+    Cliente profesional para Supabase con soporte JWT para RLS
     """
     def __init__(self):
         self.url = os.getenv("SUPABASE_URL")
@@ -23,23 +24,34 @@ class SupabaseClient:
             logger.error("❌ SUPABASE_URL o SUPABASE_KEY no configurados en .env")
             raise ValueError("Supabase configuration missing")
         
-        self.headers = {
-            "apikey": self.key,
-            "Authorization": f"Bearer {self.key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation"  # IMPORTANTE: Para que devuelva los datos insertados
-        }
         self.base_url = f"{self.url}/rest/v1"
         logger.info("✅ Supabase client initialized successfully")
     
+    def get_headers(self, token: str = None) -> Dict[str, str]:
+        """
+        Obtener headers con o sin autenticación JWT
+        """
+        headers = {
+            "apikey": self.key,
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+        
+        # 🔐 CRÍTICO: Si hay token JWT, usarlo para RLS
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            # Sin JWT, usar API Key (solo para operaciones públicas)
+            headers["Authorization"] = f"Bearer {self.key}"
+            
+        return headers
+    
     def health_check(self) -> bool:
-        """
-        Verifica la conexión a la base de datos
-        """
+        """Verifica la conexión a la base de datos"""
         try:
             response = requests.get(
                 f"{self.base_url}/users",
-                headers=self.headers,
+                headers=self.get_headers(),
                 params={"select": "id", "limit": "1"},
                 timeout=10
             )
@@ -53,31 +65,25 @@ class SupabaseClient:
             logger.error(f"❌ Database health check failed: {str(e)}")
             return False
     
-    def from_table(self, table: str) -> 'TableQuery':
+    def table(self, table: str, token: str = None) -> 'TableQuery':
         """
-        Simula la interfaz del cliente original de Supabase
-        Usamos from_table en lugar de from (palabra reservada)
+        Obtener tabla con autenticación JWT opcional
         """
-        return TableQuery(self, table)
+        return TableQuery(self, table, token)
     
-    def table(self, table: str) -> 'TableQuery':
+    def rpc(self, function_name: str, params: Dict[str, Any] = None, token: str = None) -> 'RPCQuery':
         """
-        Alternativa para compatibilidad
+        Ejecutar RPC con autenticación JWT opcional
         """
-        return TableQuery(self, table)
-    def rpc(self, function_name: str, params: Dict[str, Any] = None) -> 'RPCQuery':
-        """
-        Ejecuta funciones de PostgreSQL (RPC)
-        """
-        return RPCQuery(self, function_name, params or {})
-    
+        return RPCQuery(self, function_name, params or {}, token)
 
 class TableQuery:
-    def __init__(self, client: SupabaseClient, table: str):
+    def __init__(self, client: SupabaseClient, table: str, token: str = None):
         self.client = client
         self.table = table
+        self.token = token  # 🔐 JWT para RLS
         self.params = {}
-        self.method = "GET"  # Por defecto
+        self.method = "GET"
         self.data_to_send = None
     
     def select(self, columns: str = "*", count: Optional[str] = None) -> 'TableQuery':
@@ -95,70 +101,44 @@ class TableQuery:
         return self
     
     def insert(self, data: Dict[str, Any]) -> 'TableQuery':
-        """Prepara inserción, pero no ejecuta aún"""
         self.method = "INSERT"
         self.data_to_send = data
         return self
     
     def update(self, data: Dict[str, Any]) -> 'TableQuery':
-        """Prepara actualización, pero no ejecuta aún"""
         self.method = "UPDATE"
         self.data_to_send = data
         return self
     
     def delete(self) -> 'TableQuery':
-        """Prepara eliminación, pero no ejecuta aún"""
         self.method = "DELETE"
         return self
     
     def execute(self) -> Dict[str, Any]:
         """
-        Ejecuta la consulta según el método configurado
+        Ejecuta la consulta con autenticación JWT para RLS
         """
         try:
-            headers = {
-                "apikey": self.client.key,
-                "Authorization": f"Bearer {self.client.key}",
-                "Content-Type": "application/json",
-            }
+            # 🔐 USAR JWT SI ESTÁ DISPONIBLE
+            headers = self.client.get_headers(self.token)
+            
+            url = f"{self.client.base_url}/{self.table}"
             
             if self.method == "GET":
                 headers["Prefer"] = ""
-                response = requests.get(
-                    f"{self.client.base_url}/{self.table}",
-                    headers=headers,
-                    params=self.params,
-                    timeout=10
-                )
+                response = requests.get(url, headers=headers, params=self.params, timeout=10)
                 
             elif self.method == "INSERT":
                 headers["Prefer"] = "return=representation"
-                response = requests.post(
-                    f"{self.client.base_url}/{self.table}",
-                    headers=headers,
-                    json=self.data_to_send,
-                    params=self.params,
-                    timeout=10
-                )
+                response = requests.post(url, headers=headers, json=self.data_to_send, params=self.params, timeout=10)
                 
             elif self.method == "UPDATE":
                 headers["Prefer"] = "return=representation"
-                response = requests.patch(
-                    f"{self.client.base_url}/{self.table}",
-                    headers=headers,
-                    json=self.data_to_send,
-                    params=self.params,
-                    timeout=10
-                )
+                response = requests.patch(url, headers=headers, json=self.data_to_send, params=self.params, timeout=10)
                 
             elif self.method == "DELETE":
                 headers["Prefer"] = ""
-                response = requests.delete(
-                    f"{self.client.base_url}/{self.table}",
-                    headers=headers,
-                    params=self.params,
-                    timeout=10
-                )
+                response = requests.delete(url, headers=headers, params=self.params, timeout=10)
             
             # Procesar respuesta
             if response.status_code in [200, 201, 204]:
@@ -166,29 +146,27 @@ class TableQuery:
                 return type('obj', (object,), {'data': result_data, 'error': None})()
             else:
                 error_msg = f"HTTP {response.status_code}: {response.text}"
+                logger.error(f"❌ Database error: {error_msg}")
                 return type('obj', (object,), {'data': None, 'error': error_msg})()
                 
         except Exception as e:
             error_msg = f"Request failed: {str(e)}"
+            logger.error(f"❌ Database exception: {error_msg}")
             return type('obj', (object,), {'data': None, 'error': error_msg})()
 
 class RPCQuery:
-    def __init__(self, client: SupabaseClient, function_name: str, params: Dict[str, Any]):
+    def __init__(self, client: SupabaseClient, function_name: str, params: Dict[str, Any], token: str = None):
         self.client = client
         self.function_name = function_name
         self.params = params
+        self.token = token
     
     def execute(self) -> Dict[str, Any]:
         """
-        Ejecuta la función RPC
+        Ejecuta RPC con autenticación JWT
         """
         try:
-            headers = {
-                "apikey": self.client.key,
-                "Authorization": f"Bearer {self.client.key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation"
-            }
+            headers = self.client.get_headers(self.token)
             
             response = requests.post(
                 f"{self.client.base_url}/rpc/{self.function_name}",
@@ -208,24 +186,25 @@ class RPCQuery:
             error_msg = f"RPC request failed: {str(e)}"
             return type('obj', (object,), {'data': None, 'error': error_msg})()
 
-# Cliente global de Supabase
+# Cliente global
 supabase = SupabaseClient()
 
 def get_db():
-    """
-    Obtiene el cliente de Supabase para la base de datos
-    """
+    """Obtener cliente base (sin JWT)"""
     return supabase
 
+def get_authenticated_db(token: str):
+    """Obtener cliente autenticado con JWT para RLS"""
+    return type('obj', (object,), {
+        'table': lambda table: supabase.table(table, token),
+        'rpc': lambda fn, params=None: supabase.rpc(fn, params, token)
+    })()
+
 def health_check() -> bool:
-    """
-    Verifica la conexión a la base de datos
-    """
     return supabase.health_check()
 
-# Base class for SQLModel (mantener para compatibilidad)
+# Placeholders para compatibilidad
 class Base:
     pass
 
-# Engine placeholder for SQLModel (mantener para compatibilidad)
 engine = None

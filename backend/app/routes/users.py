@@ -52,9 +52,18 @@ async def get_company_users(
 ):
     """
     Obtener todos los usuarios de la empresa (Company Admin y Super Admin)
+    CON AUTENTICACIÓN JWT PARA RLS
     """
     try:
-        db = get_db()
+        # 🔐 OBTENER JWT DEL REQUEST PARA RLS
+        auth_header = request.headers.get("Authorization")
+        user_jwt = auth_header.replace("Bearer ", "") if auth_header and auth_header.startswith("Bearer ") else None
+        
+        # 🔐 USAR CLIENTE AUTENTICADO SI HAY JWT, SINO CLIENTE BASE
+        from ..models.database import get_authenticated_db, get_db
+        db = get_authenticated_db(user_jwt) if user_jwt else get_db()
+        
+        print(f"🔍 [JWT DEBUG] Get users - Using {'JWT' if user_jwt else 'API Key'} authentication")
         
         # 🔐 SEGURIDAD: Si es super_admin, puede ver todos los usuarios
         if admin.get("role") == "super_admin":
@@ -75,6 +84,7 @@ async def get_company_users(
         print(f"❌ Error en get_company_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/invite", response_model=dict)
 async def invite_user(
     request: Request,
@@ -85,21 +95,52 @@ async def invite_user(
     Invitar un nuevo usuario a la empresa (Company Admin y Super Admin)
     """
     try:
-        # 🔍 DEBUG CRÍTICO - Verificar exactamente qué está pasando
-        print(f"🔍 [RLS FINAL DEBUG] Admin claims: {admin}")
-        print(f"🔍 [RLS FINAL DEBUG] Role: {admin.get('role')}")
-        print(f"🔍 [RLS FINAL DEBUG] Company ID: {admin.get('company_id')}")
-        print(f"🔍 [RLS FINAL DEBUG] User ID: {admin.get('user_id')}")
+        # 🔐 OBTENER JWT DEL REQUEST PARA RLS
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Token missing for RLS")
         
-        db = get_db()
+        user_jwt = auth_header.replace("Bearer ", "")
         
-        # 🔍 DEBUG: Verificar datos que se enviarán a la BD
-        print(f"🔍 [RLS FINAL DEBUG] User data to insert: {user_data}")
+        print(f"🔍 [JWT DEBUG] Using JWT for RLS: {user_jwt[:50]}...")
+        print(f"🔍 [RLS DEBUG] Admin role: {admin.get('role')}")
         
-        # Resto del código de creación de usuario...
+        # 🔐 USAR CLIENTE AUTENTICADO CON JWT
+        from ..models.database import get_authenticated_db
+        db = get_authenticated_db(user_jwt)
+        
+        # Validaciones de seguridad
+        if admin.get("role") == "company_admin" and user_data.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Company admins cannot create super admin users")
+        
+        if admin.get("role") == "company_admin":
+            user_data.company_id = admin["company_id"]
+        
+        # Verificar compañía existe
+        company_check = db.table("companies").select("*").eq("id", user_data.company_id).execute()
+        if not company_check.data:
+            if admin.get("role") == "super_admin":
+                # Crear compañía por defecto
+                default_company = {
+                    "id": user_data.company_id,
+                    "name": "Empresa Principal", 
+                    "created_by": admin["user_id"],
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+                db.table("companies").insert(default_company).execute()
+            else:
+                raise HTTPException(status_code=400, detail="Company not found")
+        
+        # Verificar usuario no existe
+        existing_user = db.table("users").select("*").eq("email", user_data.email).execute()
+        if existing_user.data:
+            raise HTTPException(status_code=400, detail="User with this email already exists")
+        
+        # Crear usuario
         temp_password = secrets.token_urlsafe(16)
-        
         user_id = str(uuid.uuid4())
+        
         user = {
             "id": user_id,
             "email": user_data.email,
@@ -116,14 +157,8 @@ async def invite_user(
             "updated_at": datetime.now().isoformat()
         }
         
-        print(f"🔍 [RLS FINAL DEBUG] Final user object: {user}")
-        
-        # 🔍 DEBUG: Ejecutar INSERT con logging completo
-        print("🔍 [RLS FINAL DEBUG] Executing INSERT...")
+        print(f"🔍 [RLS DEBUG] Inserting user with JWT authentication...")
         result = db.table("users").insert(user).execute()
-        
-        print(f"🔍 [RLS FINAL DEBUG] Insert result: {result.data}")
-        print(f"🔍 [RLS FINAL DEBUG] Insert error: {result.error}")
         
         if result.data:
             print(f"✅ [SECURITY] Usuario creado exitosamente: {user_data.email}")
@@ -134,20 +169,24 @@ async def invite_user(
                 "instructions": "User must reset password on first login"
             }
         else:
-            # Manejo detallado de errores
-            error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown database error"
-            print(f"❌ [RLS FINAL DEBUG] Database error: {error_msg}")
+            error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown error"
+            print(f"❌ [RLS DEBUG] Database error: {error_msg}")
             
+            # Manejo específico de errores RLS
+            if "row-level security" in error_msg.lower():
+                raise HTTPException(
+                    status_code=403, 
+                    detail="RLS policy violation. Please check user permissions."
+                )
             raise HTTPException(status_code=400, detail=f"Error inviting user: {error_msg}")
             
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ [RLS FINAL DEBUG] Critical error: {e}")
+        print(f"❌ [RLS DEBUG] Critical error: {e}")
         import traceback
-        print(f"❌ [RLS FINAL DEBUG] Traceback: {traceback.format_exc()}")
+        print(f"❌ [RLS DEBUG] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal server error during user invitation")
-
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
@@ -157,10 +196,16 @@ async def get_user(
 ):
     """
     Obtener un usuario específico (Company Admin y Super Admin)
-    CON VALIDACIÓN DE PERMISOS
+    CON AUTENTICACIÓN JWT PARA RLS Y VALIDACIÓN DE PERMISOS
     """
     try:
-        db = get_db()
+        # 🔐 OBTENER JWT DEL REQUEST PARA RLS
+        auth_header = request.headers.get("Authorization")
+        user_jwt = auth_header.replace("Bearer ", "") if auth_header and auth_header.startswith("Bearer ") else None
+        
+        # 🔐 USAR CLIENTE AUTENTICADO SI HAY JWT
+        from ..models.database import get_authenticated_db, get_db
+        db = get_authenticated_db(user_jwt) if user_jwt else get_db()
         
         # Obtener usuario
         user_result = db.table("users").select("*").eq("id", user_id).execute()
@@ -184,6 +229,7 @@ async def get_user(
         print(f"❌ Error en get_user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.put("/{user_id}", response_model=UserResponse)
 async def update_user(
     request: Request,
@@ -193,15 +239,25 @@ async def update_user(
 ):
     """
     Actualizar un usuario (Company Admin y Super Admin)
-    CON VALIDACIONES DE SEGURIDAD COMPLETAS
+    CON AUTENTICACIÓN JWT PARA RLS Y VALIDACIONES DE SEGURIDAD
     """
     try:
-        db = get_db()
+        # 🔐 OBTENER JWT DEL REQUEST PARA RLS
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Token missing for RLS")
         
+        user_jwt = auth_header.replace("Bearer ", "")
+        
+        print(f"🔍 [JWT DEBUG] Update user - Using JWT for RLS")
         print(f"🔍 [SECURITY] Update user iniciado por: {admin.get('email')}")
         print(f"🔍 [SECURITY] User ID: {user_id}")
         
-        # Obtener usuario actual
+        # 🔐 USAR CLIENTE AUTENTICADO CON JWT
+        from ..models.database import get_authenticated_db
+        db = get_authenticated_db(user_jwt)
+        
+        # Obtener usuario actual CON AUTENTICACIÓN JWT
         current_user_result = db.table("users").select("*").eq("id", user_id).execute()
         if not current_user_result.data:
             raise HTTPException(status_code=404, detail="User not found")
@@ -238,19 +294,41 @@ async def update_user(
                 detail="Cannot deactivate your own account"
             )
         
+        # 🔐 VALIDACIÓN DE SEGURIDAD 5: No permitir cambiar el rol propio
+        if user_data.role and user_id == admin["user_id"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot change your own role"
+            )
+        
         update_data = user_data.dict(exclude_unset=True, exclude_none=True)
         update_data["updated_at"] = datetime.now().isoformat()
         
         print(f"🔍 [SECURITY] Datos a actualizar: {update_data}")
         
+        # 🔐 EJECUTAR UPDATE CON AUTENTICACIÓN JWT
         result = db.table("users").update(update_data).eq("id", user_id).execute()
         
         if result.data:
             print(f"✅ [SECURITY] Usuario actualizado exitosamente: {user_id}")
-            return UserResponse(**result.data[0])
+            
+            # Obtener usuario actualizado para respuesta
+            updated_user_result = db.table("users").select("*").eq("id", user_id).execute()
+            if updated_user_result.data:
+                return UserResponse(**updated_user_result.data[0])
+            else:
+                raise HTTPException(status_code=500, detail="Failed to retrieve updated user")
         else:
             # Manejo profesional de errores
             error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown error"
+            print(f"❌ [SECURITY] Error en update: {error_msg}")
+            
+            # Manejo específico de errores RLS
+            if "row-level security" in error_msg.lower():
+                raise HTTPException(
+                    status_code=403, 
+                    detail="RLS policy violation. Insufficient permissions to update user."
+                )
             raise HTTPException(status_code=400, detail=f"Error updating user: {error_msg}")
             
     except HTTPException:
@@ -261,6 +339,7 @@ async def update_user(
         print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal server error during user update")
 
+
 @router.delete("/{user_id}")
 async def delete_user(
     request: Request,
@@ -269,14 +348,25 @@ async def delete_user(
 ):
     """
     Eliminar un usuario (Company Admin y Super Admin)
-    CON VALIDACIONES DE SEGURIDAD AVANZADAS
+    CON AUTENTICACIÓN JWT PARA RLS Y VALIDACIONES DE SEGURIDAD AVANZADAS
     """
     try:
-        db = get_db()
+        # 🔐 OBTENER JWT DEL REQUEST PARA RLS
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Token missing for RLS")
         
+        user_jwt = auth_header.replace("Bearer ", "")
+        
+        print(f"🔍 [JWT DEBUG] Delete user - Using JWT for RLS")
         print(f"🔍 [SECURITY] Delete user iniciado por: {admin.get('email')}")
+        print(f"🔍 [SECURITY] User ID a eliminar: {user_id}")
         
-        # Obtener usuario
+        # 🔐 USAR CLIENTE AUTENTICADO CON JWT
+        from ..models.database import get_authenticated_db
+        db = get_authenticated_db(user_jwt)
+        
+        # Obtener usuario CON AUTENTICACIÓN JWT
         user_result = db.table("users").select("*").eq("id", user_id).execute()
         if not user_result.data:
             raise HTTPException(status_code=404, detail="User not found")
@@ -313,14 +403,46 @@ async def delete_user(
                 detail="Cannot delete super admin users"
             )
         
+        # 🔐 VALIDACIÓN DE SEGURIDAD 5: No eliminar el último super_admin del sistema
+        if user.get("role") == "super_admin":
+            # Contar super_admins restantes
+            super_admins_result = db.table("users").select("id", count="exact").eq("role", "super_admin").execute()
+            super_admin_count = super_admins_result.count if hasattr(super_admins_result, 'count') else 1
+            
+            if super_admin_count <= 1:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot delete the last super admin in the system"
+                )
+        
+        print(f"🔍 [SECURITY] Ejecutando DELETE con autenticación JWT...")
+        
+        # 🔐 EJECUTAR DELETE CON AUTENTICACIÓN JWT
         result = db.table("users").delete().eq("id", user_id).execute()
         
         if result.data is not None:
             print(f"✅ [SECURITY] Usuario eliminado exitosamente: {user_id}")
-            return {"message": "User deleted successfully"}
+            
+            # 🔐 LOG DE AUDITORÍA (en producción, guardar en tabla de logs)
+            print(f"📋 [AUDIT] User {user_id} deleted by {admin.get('email')} at {datetime.now().isoformat()}")
+            
+            return {
+                "message": "User deleted successfully",
+                "deleted_user_id": user_id,
+                "deleted_by": admin.get("email"),
+                "timestamp": datetime.now().isoformat()
+            }
         else:
             # Manejo profesional de errores
             error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown error"
+            print(f"❌ [SECURITY] Error en delete: {error_msg}")
+            
+            # Manejo específico de errores RLS
+            if "row-level security" in error_msg.lower():
+                raise HTTPException(
+                    status_code=403, 
+                    detail="RLS policy violation. Insufficient permissions to delete user."
+                )
             raise HTTPException(status_code=400, detail=f"Error deleting user: {error_msg}")
             
     except HTTPException:
