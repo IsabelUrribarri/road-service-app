@@ -85,68 +85,19 @@ async def invite_user(
     Invitar un nuevo usuario a la empresa (Company Admin y Super Admin)
     """
     try:
-        # 🔍 DIAGNÓSTICO PROFESIONAL - VERIFICAR JWT CLAIMS
-        print(f"🔍 [JWT DEBUG] Admin completo: {admin}")
-        print(f"🔍 [JWT DEBUG] Role en JWT: {admin.get('role')}")
-        print(f"🔍 [JWT DEBUG] Company ID en JWT: {admin.get('company_id')}")
-        print(f"🔍 [JWT DEBUG] User ID en JWT: {admin.get('user_id')}")
-        print(f"🔍 [JWT DEBUG] Email en JWT: {admin.get('email')}")
-        
-        # Verificar que los claims necesarios existen
-        required_claims = ['role', 'company_id', 'user_id', 'email']
-        missing_claims = [claim for claim in required_claims if not admin.get(claim)]
-        
-        if missing_claims:
-            print(f"🚨 [JWT DEBUG] Claims faltantes en JWT: {missing_claims}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"JWT missing required claims: {missing_claims}"
-            )
+        # 🔍 DEBUG CRÍTICO - Verificar exactamente qué está pasando
+        print(f"🔍 [RLS FINAL DEBUG] Admin claims: {admin}")
+        print(f"🔍 [RLS FINAL DEBUG] Role: {admin.get('role')}")
+        print(f"🔍 [RLS FINAL DEBUG] Company ID: {admin.get('company_id')}")
+        print(f"🔍 [RLS FINAL DEBUG] User ID: {admin.get('user_id')}")
         
         db = get_db()
         
-        print(f"🔍 [SECURITY] Invitación iniciada por: {admin.get('email')}")
-        print(f"🔍 [SECURITY] Datos recibidos: {user_data}")
+        # 🔍 DEBUG: Verificar datos que se enviarán a la BD
+        print(f"🔍 [RLS FINAL DEBUG] User data to insert: {user_data}")
         
-        # 🔐 VALIDACIÓN DE SEGURIDAD 1: Company admin no puede crear super_admins
-        if admin.get("role") == "company_admin" and user_data.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=403, 
-                detail="Company admins cannot create super admin users"
-            )
-        
-        # 🔐 VALIDACIÓN DE SEGURIDAD 2: Company admin solo puede crear en su compañía
-        if admin.get("role") == "company_admin":
-            user_data.company_id = admin["company_id"]
-            print(f"🔍 [SECURITY] Company admin usando company_id: {user_data.company_id}")
-        
-        # 🔐 VALIDACIÓN DE SEGURIDAD 3: Verificar que la empresa existe
-        print(f"🔍 [SECURITY] Verificando compañía: {user_data.company_id}")
-        company_check = db.table("companies").select("*").eq("id", user_data.company_id).execute()
-        
-        if not company_check.data:
-            # Si la compañía no existe, crear una por defecto SOLO para super_admin
-            if admin.get("role") == "super_admin":
-                print("🔍 [SECURITY] Super admin creando compañía por defecto")
-                default_company = {
-                    "id": user_data.company_id if user_data.company_id else str(uuid.uuid4()),
-                    "name": "Empresa Principal",
-                    "created_by": admin["user_id"],
-                    "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat()
-                }
-                company_result = db.table("companies").insert(default_company).execute()
-                print(f"🔍 [SECURITY] Compañía creada: {company_result.data}")
-            else:
-                raise HTTPException(status_code=400, detail="Company not found")
-        
-        # 🔐 VALIDACIÓN DE SEGURIDAD 4: Verificar si el usuario ya existe
-        existing_user = db.table("users").select("*").eq("email", user_data.email).execute()
-        if existing_user.data:
-            raise HTTPException(status_code=400, detail="User with this email already exists")
-        
-        # 🔐 VALIDACIÓN DE SEGURIDAD 5: Generar password temporal seguro
-        temp_password = secrets.token_urlsafe(16)  # 16 bytes de entropía
+        # Resto del código de creación de usuario...
+        temp_password = secrets.token_urlsafe(16)
         
         user_id = str(uuid.uuid4())
         user = {
@@ -165,41 +116,38 @@ async def invite_user(
             "updated_at": datetime.now().isoformat()
         }
         
-        print(f"🔍 [SECURITY] Creando usuario con datos seguros")
+        print(f"🔍 [RLS FINAL DEBUG] Final user object: {user}")
+        
+        # 🔍 DEBUG: Ejecutar INSERT con logging completo
+        print("🔍 [RLS FINAL DEBUG] Executing INSERT...")
         result = db.table("users").insert(user).execute()
         
-        # 🔐 MANEJO PROFESIONAL DE ERRORES
+        print(f"🔍 [RLS FINAL DEBUG] Insert result: {result.data}")
+        print(f"🔍 [RLS FINAL DEBUG] Insert error: {result.error}")
+        
         if result.data:
             print(f"✅ [SECURITY] Usuario creado exitosamente: {user_data.email}")
             return {
                 "message": "User invited successfully",
                 "user": UserResponse(**result.data[0]),
-                "temp_password": temp_password,  # ⚠️ En producción, enviar por email
-                "instructions": "User must reset password on first login",
-                "security_note": "Temporary password should be transmitted securely"
+                "temp_password": temp_password,
+                "instructions": "User must reset password on first login"
             }
         else:
-            # Manejo profesional de errores de base de datos
+            # Manejo detallado de errores
             error_msg = str(result.error) if hasattr(result, 'error') and result.error else "Unknown database error"
+            print(f"❌ [RLS FINAL DEBUG] Database error: {error_msg}")
             
-            # 🔐 DETECCIÓN ESPECÍFICA DE ERRORES DE SEGURIDAD
-            if "row-level security" in error_msg.lower():
-                raise HTTPException(
-                    status_code=403, 
-                    detail="Security policy violation: Insufficient permissions to create user"
-                )
-            elif "duplicate key" in error_msg.lower():
-                raise HTTPException(status_code=400, detail="User with this email already exists")
-            else:
-                raise HTTPException(status_code=400, detail=f"Database error: {error_msg}")
+            raise HTTPException(status_code=400, detail=f"Error inviting user: {error_msg}")
             
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ [SECURITY] Error crítico en invite_user: {e}")
+        print(f"❌ [RLS FINAL DEBUG] Critical error: {e}")
         import traceback
-        print(f"❌ [SECURITY] Traceback: {traceback.format_exc()}")
+        print(f"❌ [RLS FINAL DEBUG] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal server error during user invitation")
+
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
