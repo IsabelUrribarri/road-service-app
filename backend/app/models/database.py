@@ -1,10 +1,9 @@
-# backend/models/database.py
+# backend/models/database.py - VERSIÓN CORREGIDA
 import os
 import requests
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional, List
 import logging
-from fastapi import Request
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -194,11 +193,20 @@ def get_db():
     return supabase
 
 def get_authenticated_db(token: str):
-    """Obtener cliente autenticado con JWT para RLS"""
-    return type('obj', (object,), {
-        'table': lambda table: supabase.table(table, token),
-        'rpc': lambda fn, params=None: supabase.rpc(fn, params, token)
-    })()
+    """
+    🔐 CLIENTE AUTENTICADO CORREGIDO - Sin errores de lambda
+    """
+    class AuthenticatedDB:
+        def __init__(self, token: str):
+            self.token = token
+            
+        def table(self, table_name: str):
+            return supabase.table(table_name, self.token)
+            
+        def rpc(self, function_name: str, params: Dict[str, Any] = None):
+            return supabase.rpc(function_name, params, self.token)
+    
+    return AuthenticatedDB(token)
 
 def health_check() -> bool:
     return supabase.health_check()
